@@ -3,7 +3,7 @@ module atmos_coupled_mod
 
 !-----------------------------------------------------------------------
 !
-!          driver for atmospheric gcm using an 
+!          driver for atmospheric gcm using an
 !     atmospheric dynamical core and modular physics
 !
 !-----------------------------------------------------------------------
@@ -22,9 +22,8 @@ use atmosphere_mod, only:  atmosphere_up,         &
 use time_manager_mod, only:  time_type, operator(+), get_time
 
 use    utilities_mod, only:  file_exist, open_file, check_nml_error,  &
-                             error_mesg, print_version_number,        &
-                             read_data, write_data, get_my_pe,        &
-                             close_file
+                             error_mesg, close_file, get_my_pe,       &
+                             read_data, write_data
 
 use  diag_integral_mod, only: diag_integral_init, diag_integral_end, &
                               diag_integral_output
@@ -45,7 +44,7 @@ public  update_atmos_coupled_down, update_atmos_coupled_up,   &
                                        lon_bnd,  lat_bnd
      real, pointer, dimension(:,:) :: t_bot, q_bot, z_bot, p_bot,  &
                                       u_bot, v_bot, p_surf, gust,  &
-                                      flux_sw, flux_lw,            &
+                                      coszen, flux_sw, flux_lw,    &
                                       lprec, fprec
      type (surf_diff_type)         :: Surf_diff
      type (time_type)              :: Time, Time_step, Time_init
@@ -53,7 +52,8 @@ public  update_atmos_coupled_down, update_atmos_coupled_up,   &
 
 !-----------------------------------------------------------------------
 
- character(len=4), parameter :: vers_num = 'v2.0'
+character(len=256) :: version = '$Id: atmos_coupled.F90,v 1.2 2000/07/28 20:15:38 fms Exp $'
+character(len=256) :: tag = '$Name: bombay $'
 
 !-----------------------------------------------------------------------
 
@@ -102,7 +102,7 @@ real,  dimension(:,:),  intent(inout) :: tau_x,  tau_y
                           t_surf,  albedo, rough_mom,   &
                           u_star,  b_star,              &
                           dtau_dv, tau_x,  tau_y,       &
-                          Atmos%gust,                   &
+                          Atmos%gust, Atmos%coszen,     &
                           Atmos%flux_sw, Atmos%flux_lw, &
                           Atmos%Surf_diff               )
 
@@ -156,7 +156,7 @@ end subroutine update_atmos_coupled_up
 subroutine atmos_coupled_init (Atmos, Time_init, Time, Time_step)
 
 type (atmos_boundary_data_type), intent(inout) :: Atmos
-type (time_type),       intent(in)    :: Time_init, Time, Time_step
+type (time_type), intent(in) :: Time_init, Time, Time_step
 
   integer :: unit, mlon, mlat, nlon, nlat, sec, day
   real    :: dt
@@ -164,7 +164,8 @@ type (time_type),       intent(in)    :: Time_init, Time, Time_step
 !---- print version number to logfile ----
 
    unit = open_file ('logfile.out', action='append')
-   call print_version_number (unit, 'atmos_coupled', vers_num)
+   if (get_my_pe() == 0) &
+       write (unit,'(/,80("="),/(a))') trim(version), trim(tag)
    call close_file (unit)
 
 !---- set the atmospheric model time ------
@@ -174,7 +175,7 @@ type (time_type),       intent(in)    :: Time_init, Time, Time_step
    Atmos % Time_step = Time_step
 
 !-----------------------------------------------------------------------
-!  ----- initialize b grid atmospheric model -----
+!  ----- initialize atmospheric model -----
 
     call atmosphere_init (Atmos%Time_init, Atmos%Time, Atmos%Time_step,&
                           Atmos%Surf_diff )
@@ -199,6 +200,7 @@ type (time_type),       intent(in)    :: Time_init, Time, Time_step
                Atmos % gust     (nlon,nlat), &
                Atmos % flux_sw  (nlon,nlat), &
                Atmos % flux_lw  (nlon,nlat), &
+               Atmos % coszen   (nlon,nlat), &
                Atmos % lprec    (nlon,nlat), &
                Atmos % fprec    (nlon,nlat)  )
 
@@ -279,6 +281,26 @@ real    :: dt
   call write_data ( unit, Atmos % fprec * dt )
   call write_data ( unit, Atmos % gust       )
   call close_file (unit)
+
+!-------- deallocate space --------
+
+  deallocate ( Atmos % glon_bnd , &
+               Atmos % glat_bnd , &
+               Atmos %  lon_bnd , &
+               Atmos %  lat_bnd , &
+               Atmos % t_bot    , &
+               Atmos % q_bot    , &
+               Atmos % z_bot    , &
+               Atmos % p_bot    , &
+               Atmos % u_bot    , &
+               Atmos % v_bot    , &
+               Atmos % p_surf   , &
+               Atmos % gust     , &
+               Atmos % flux_sw  , &
+               Atmos % flux_lw  , &
+               Atmos % coszen   , &
+               Atmos % lprec    , &
+               Atmos % fprec      )
 
 !-----------------------------------------------------------------------
 

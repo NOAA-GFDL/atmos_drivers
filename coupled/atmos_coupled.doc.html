@@ -1,27 +1,26 @@
 <HTML>
-<TITLE>module atmos_coupler</TITLE>
+<TITLE>module atmos_coupled</TITLE>
 <BODY BGCOLOR="#AABBCC" TEXT="#332211" >
 
 <DIV ALIGN="CENTER"> <FONT SIZE=1>
 <A HREF="#INTERFACE">PUBLIC INTERFACE</A> / 
 <A HREF="#DATA_TYPES">DATA</A> / 
 <A HREF="#ROUTINES">ROUTINES</A> / 
-<A HREF="#NAMELIST">NAMELIST</A> / 
 <A HREF="#CHANGES">CHANGES</A> / 
 <A HREF="#ERRORS">ERRORS</A> / 
 <A HREF="#REFERENCES">REFERENCES</A> / 
 <A HREF="#NOTES">NOTES</A> 
 </FONT>
-<P><I>Last updated on <!--#exec cmd="echo $LAST_MODIFIED" -->.</I>
 <BR><BR></DIV><HR>
 
 
-<H2>module atmos_coupler</H2>
+<H2>module atmos_coupled</H2>
 <A NAME="HEADER">
 <PRE>
-     Version: v2.0
-     Date:    May 18, 2000
-     Contact: Bruce Wyman
+     <B>Contact:</B>   Bruce Wyman
+     <B>Reviewers:</B>
+
+     <B><A HREF=".doc.log#atmos_coupled.f90">Tags/Status</A></B>
 </PRE>
 </A><!-- END HEADER -->
 <!--------------------------------------------------------------------->
@@ -40,7 +39,7 @@
 <A NAME="DESCRIPTION">
 <!-- BEGIN DESCRIPTION -->
 <PRE>
-     This version of atmos_coupler_mod has been designed around the implicit
+     This version of atmos_coupled_mod has been designed around the implicit
      version diffusion scheme of the GCM. It requires two routines to advance
      the atmospheric model one time step into the future. These two routines
      correspond to the down and up sweeps of the standard tridiagonal solver.
@@ -78,44 +77,40 @@
 <!-- BEGIN INTERFACE -->
 <PRE>
 
-use atmos_driver_nml [, only:  atmos_boundary_data_type,
-                               atmos_coupler_init,
-                               update_atmos_coupler_down,
-                               update_atmos_coupler_up,
-                               atmos_coupler_end         ]
+<b>use atmos_coupled_mod</b> [, only:  atmos_boundary_data_type,
+                                atmos_coupled_init,
+                                update_atmos_coupled_down,
+                                update_atmos_coupled_up,
+                                atmos_coupled_end         ]
 
-  atmos_boundary_data_type  - Derived-type variable that contains fields
-                     needed by the flux exchange module. These fields
-                     describe the atmospheric grid and are needed to
-                     compute/exchange fluxes with other component models.
-                     All fields in this variable type are allocated for
-                     the global grid (without halo regions).
+  <a href="atmos_coupled.doc.html#DATA_TYPES">atmos_boundary_data_type</a>
+      Derived-type variable that contains fields needed by the flux exchange
+      module.  These fields describe the atmospheric grid and are needed to
+      compute/exchange fluxes with other component models.  All fields in this
+      variable type are allocated for the global grid (without halo regions).
 
-  atmos_coupler_init - Called once to initialize this module and any other
-                       modules used. This routine allocates storage and returns
-                       a variable of type atmos_boundary_data_type, and also
-                       reads a namelist input and restart file. 
+  <a href="atmos_coupled.doc.html#atmos_coupled_init">atmos_coupled_init</a>
+      Called once to initialize this module and any other modules used.
+      This routine allocates storage and returns a variable of type
+      atmos_boundary_data_type, and also reads a namelist input and restart file. 
 
-  update_atmos_coupler_down - Called every time step as the atmospheric
-                              driver to compute the atmospheric tendencies
-                              for dynamics, radiation, vertical diffusion
-                              of momentum, tracers, and heat/moisture.
-                              For heat/moisture only the downward sweep of
-                              the tridiagonal elimination is performed, hence
-                              the name "_down". 
+  <a href="atmos_coupled.doc.html#update_atmos_coupled_down">update_atmos_coupled_down</a>
+      Called every time step as the atmospheric driver to compute the
+      atmospheric tendencies for dynamics, radiation, vertical diffusion of
+      momentum, tracers, and heat/moisture.  For heat/moisture only the
+      downward sweep of the tridiagonal elimination is performed, hence
+      the name "_down". 
 
-  update_atmos_coupler_up   - Called every time step as the atmospheric
-                              driver to finish the upward sweep of the
-                              tridiagonal elimination for heat/moisture and
-                              compute the convective and large-scale tendencies.
-                              The atmospheric variables and time step are
-                              advanced by one time step and tendencies set back
-                              to zero. 
+  <a href="atmos_coupled.doc.html#update_atmos_coupled_up">update_atmos_coupled_up</a>
+      Called every time step as the atmospheric driver to finish the upward
+      sweep of the tridiagonal elimination for heat/moisture and compute the
+      convective and large-scale tendencies.  The atmospheric variables are
+      advanced one time step and tendencies set back to zero. 
 
-  atmos_coupler_end - Call once to terminate this module and any other modules
-                      used. This routine writes a restart file, but does not
-                      deallocate storage used by the derived-type 
-                      atmos_boundary_data_type.
+  <a href="atmos_coupled.doc.html#atmos_coupled_end">atmos_coupled_end</a>
+      Call once to terminate this module and any other modules used.
+      This routine writes a restart file and deallocates storage
+      used by the derived-type variable atmos_boundary_data_type.
 
 </PRE>
 </A><!-- END INTERFACE -->
@@ -126,14 +121,19 @@ use atmos_driver_nml [, only:  atmos_boundary_data_type,
 <!-- BEGIN DATA_TYPES -->
 <PRE>
 
-<b>type (atmos_boundary_data_type)</b>
+<b>type atmos_boundary_data_type</b>
 
 -- real, dimension(:)
 
-   lon_bnd   longitude axis grid box boundaries in radians
-                 must be monotonic
-   lat_bnd   latitude axis grid box boundaries in radians
-                 must be monotonic
+   glon_bnd  The global longitude axis grid box boundaries in radians.
+   glat_bnd  The global latitude axis grid box boundaries in radians.
+   lon_bnd   The local longitude axis grid box boundaries in radians.
+   lat_bnd   The local latitude axis grid box boundaries in radians.
+
+-- integer, dimension(4)
+
+   axes      axis indices (returned by diag_manager) for the atmospheric grid 
+             (they correspond to the x, y, pfull, phalf axes)
 
 -- real, dimension(:,:)
 
@@ -145,19 +145,15 @@ use atmos_driver_nml [, only:  atmos_boundary_data_type,
    v_bot     meridional wind component at lowest model level
    p_surf    surface pressure
    gust      gustiness factor
-
-   mu_bot    vertical diffusion terms
-   nu_bot
-   e_bot
-   t_f_bot
-   q_f_bot
-
-   dt_t_bot  temperature change at lowest model level
-   dt_q_bot  specific humidity change at lowest model level
+   coszen    cosine of the zenith angle
    flux_sw   net shortwave flux at the surface
    flux_lw   downward longwave flux at the surface
    lprec     liquid precipitation rate
    fprec     frozen precipitation rate
+
+-- type (surf_diff_type)
+
+   Surf_diff   vertical diffusion terms
 
 -- type (time_type)
 
@@ -169,16 +165,16 @@ use atmos_driver_nml [, only:  atmos_boundary_data_type,
 
 NOTES on type(atmos_boundary_data_type):
 
-  1) Fields in this derived-type are dimensioned for global grid (without
-     halo regions).  If the global grid size is "nlon" by "nlat", then
-     the following storage will be allocated (all 2-d arrays are the same):
+  1) Fields in this derived-type are dimensioned for local processor's grid
+     (without halo regions) unless otherwise mentioned.
+     If the local grid size is "nlon" by "nlat", then the following storage
+     will be allocated (all 2-d arrays are the same):
 
          allocate ( lon_bnd (nlon+1), &
                     lat_bnd (nlat+1), &
                     t_bot (nlon,nlon) )
 
-  2) Routine "atmos_coupler_init" allocates storage for this derived-type,
-     there is no analagous routine to deallocate storage.
+  2) The surf_diff_type is inherited from module vert_diff_mod.
 
 </PRE>
 </A><!-- END DATA_TYPES -->
@@ -188,8 +184,9 @@ NOTES on type(atmos_boundary_data_type):
 <H4>PUBLIC ROUTINES</H4>
 <!-- BEGIN ROUTINES -->
 <PRE>
+<a name="atmos_coupled_init">
 
-<b>call atmos_coupler_init</b> (Atmos, Time_init, Time, Time_step)
+<b>call atmos_coupled_init</b> (Atmos, Time_init, Time, Time_step)
 
 inout: Atmos     = atmos_boundary_data_type
 
@@ -199,8 +196,9 @@ inout: Atmos     = atmos_boundary_data_type
        Time_step = time step [time_type]
 
 -------------------------------------------------------------------
+<a name="update_atmos_coupled_down">
 
-<b>call update_atmos_coupler_down</b> (Atmos, t_surf,  albedo, rough_mom,  
+<b>call update_atmos_coupled_down</b> (Atmos, t_surf,  albedo, rough_mom,  
                                 u_star,  b_star, frac_land,  
                                 dtau_dv, tau_x,  tau_y      )
 
@@ -210,7 +208,7 @@ inout: Atmos     = atmos_boundary_data_type
         albedo    = surface albedo for radiation calculations
         rough_mom = surface roughness used for momentum
         u_star    = friction velocity
-        b_star    = bouyancy scale
+        b_star    = buoyancy scale
         frac_land = fraction amount of land in a grid box
         dtau_dv   = derivative of wind stress w.r.t. the
                     lowest level wind speed
@@ -219,8 +217,9 @@ inout: Atmos     = atmos_boundary_data_type
         tau_y     = meridional wind stress
 
 -------------------------------------------------------------------
+<a name="update_atmos_coupled_up">
 
-<b>call update_atmos_coupler_up</b> (Atmos, frac_land, dt_t_bot, dt_q_bot)
+<b>call update_atmos_coupled_up</b> (Atmos, frac_land, dt_t_bot, dt_q_bot)
 
 inout: Atmos     = atmos_boundary_data_type
 
@@ -229,8 +228,9 @@ inout: Atmos     = atmos_boundary_data_type
        dt_q_bot  = specific humidity change at the lowest level
 
 -------------------------------------------------------------------
+<a name="atmos_coupled_end">
 
-<b>call atmos_coupler_end</b> (Atmos)
+<b>call atmos_coupled_end</b> (Atmos)
 
 in: Atmos     = atmos_boundary_data_type
 
@@ -244,13 +244,13 @@ in: Atmos     = atmos_boundary_data_type
 <PRE>
 
      This module automatically writes restart data to file
-     "RESTART/atmos_coupler.res" containing the following records:
+     "RESTART/atmos_coupled.res" containing the following records:
 
                1) liquid precipitation mass (in kg/m2)
                2) frozen precipitation mass (in kg/m2)
                3) gustiness (in m/s)
 
-     The input restart file is read from "INPUT/atmos_coupler.res",
+     The input restart file is read from "INPUT/atmos_coupled.res",
      if is does not exist the model will restart with the following
      values:  precipitation mass = 0. and gustiness = 1.
 
@@ -265,8 +265,9 @@ in: Atmos     = atmos_boundary_data_type
 <H4>CHANGE HISTORY</H4>
 <!-- BEGIN CHANGES -->
 <PRE>
+<B><A HREF=".doc.log#atmos_coupled.f90">Revision history</A></B>
 
-<b>Changes for v2.0</b>
+<b>Prior Changes</b>
 
     The name of this module, its subroutines, and the restart file
     name were changed from "atmos_model" to "atmos_coupled".
