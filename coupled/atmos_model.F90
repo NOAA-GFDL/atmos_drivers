@@ -1,5 +1,5 @@
 
-module atmos_coupled_mod
+module atmos_model_mod
 
 !-----------------------------------------------------------------------
 !
@@ -37,8 +37,8 @@ use  diag_integral_mod, only: diag_integral_init, diag_integral_end, &
 implicit none
 private
 
-public  update_atmos_coupled_down, update_atmos_coupled_up,   &
-        atmos_coupled_init, atmos_coupled_end, atmos_boundary_data_type
+public  update_atmos_model_down, update_atmos_model_up,   &
+        atmos_model_init, atmos_model_end, atmos_boundary_data_type
 
 !-----------------------------------------------------------------------
 
@@ -55,10 +55,30 @@ public  update_atmos_coupled_down, update_atmos_coupled_up,   &
      type (time_type)              :: Time, Time_step, Time_init
  end type
 
+!quantities going from land+ice to atmos
+type, public :: land_ice_atmos_boundary_type
+!defined here but declared by coupler_main, allocated by flux_exchange_init
+   real, dimension(:,:), pointer :: t, albedo, land_frac
+   real, dimension(:,:), pointer :: dt_t, dt_q
+   real, dimension(:,:), pointer :: u_flux, v_flux, dtaudv, u_star, b_star, rough_mom
+   real, dimension(:,:,:), pointer :: data !collective field for "named" fields above
+   integer :: xtype             !REGRID, REDIST or DIRECT
+end type land_ice_atmos_boundary_type
+!quantities going from land alone to atmos (none at present)
+type, public :: land_atmos_boundary_type
+!   private
+   real, dimension(:,:), pointer :: data
+end type land_atmos_boundary_type
+!quantities going from ice alone to atmos (none at present)
+type, public :: ice_atmos_boundary_type
+!   private
+   real, dimension(:,:), pointer :: data
+end type ice_atmos_boundary_type
+
 !-----------------------------------------------------------------------
 
-character(len=256) :: version = '$Id: atmos_coupled.F90,v 1.6 2001/10/25 17:47:33 fms Exp $'
-character(len=256) :: tag = '$Name: fez $'
+character(len=256) :: version = '$Id: atmos_model.F90,v 1.1 2002/01/30 18:53:47 fms Exp $'
+character(len=256) :: tag = '$Name: galway $'
 
 character(len=80) :: restart_format = 'atmos_coupled_mod restart format 01'
 
@@ -69,10 +89,9 @@ contains
 
 !#######################################################################
 
-subroutine update_atmos_coupled_down (Atmos, t_surf,  albedo, rough_mom,&
-                                            u_star,  b_star, frac_land, &
-                                            dtau_dv, tau_x,  tau_y      )
-
+subroutine update_atmos_model_down( Surface_boundary, Atmos )
+!Balaji: this routine is now a driver for any atmosphere
+!this comment only applies to the current atmosphere.f90 and should be moved there
 !-----------------------------------------------------------------------
 !                       atmospheric driver
 !    performs radiation, damping, and vertical diffusion of momentum,
@@ -83,7 +102,7 @@ subroutine update_atmos_coupled_down (Atmos, t_surf,  albedo, rough_mom,&
 !        rough_mom = surface roughness (used for momentum
 !        u_star    = friction velocity
 !        b_star    = bouyancy scale
-!        frac_land = fraction amount of land in a grid box
+!        land_frac = fraction amount of land in a grid box
 !        dtau_dv   = derivative of wind stress w.r.t. the 
 !                    lowest level wind speed
 !
@@ -92,51 +111,53 @@ subroutine update_atmos_coupled_down (Atmos, t_surf,  albedo, rough_mom,&
 !
 !-----------------------------------------------------------------------
 
+  type(land_ice_atmos_boundary_type), intent(inout) :: Surface_boundary
 type (atmos_boundary_data_type), intent(inout) :: Atmos
-real,  dimension(:,:),  intent(in)    :: t_surf, albedo, rough_mom, &
-                                         u_star, b_star, frac_land, &
-                                         dtau_dv
-real,  dimension(:,:),  intent(inout) :: tau_x,  tau_y
+!real,  dimension(:,:),  intent(in)    :: t_surf, albedo, rough_mom, &
+!                                         u_star, b_star, land_frac, &
+!                                         dtau_dv
+!real,  dimension(:,:),  intent(inout) :: tau_x,  tau_y
                                       
 !-----------------------------------------------------------------------
 
-    call atmosphere_down (Atmos%Time, frac_land,        &
-                          t_surf,  albedo, rough_mom,   &
-                          u_star,  b_star,              &
-                          dtau_dv, tau_x,  tau_y,       &
+    call atmosphere_down (Atmos%Time, Surface_boundary%land_frac,        &
+                          Surface_boundary%t,  Surface_boundary%albedo, Surface_boundary%rough_mom,   &
+                          Surface_boundary%u_star,  Surface_boundary%b_star,              &
+                          Surface_boundary%dtaudv, Surface_boundary%u_flux,  Surface_boundary%v_flux,       &
                           Atmos%gust, Atmos%coszen,     &
                           Atmos%flux_sw, Atmos%flux_lw, &
                           Atmos%Surf_diff               )
 
 !-----------------------------------------------------------------------
 
- end subroutine update_atmos_coupled_down
+ end subroutine update_atmos_model_down
 
 !#######################################################################
 
- subroutine update_atmos_coupled_up (Atmos, frac_land, dt_t_bot, dt_q_bot)
+ subroutine update_atmos_model_up( Surface_boundary, Atmos )
 
 !-----------------------------------------------------------------------
 !                       atmospheric driver
 !    performs upward vertical diffusion of heat/moisture and
 !    moisture processes
 !
-!   in: frac_land = fraction amount of land in a grid box
+!   in: land_frac = fraction amount of land in a grid box
 !       dt_t_bot  = temperature tendency at the lowest level
 !       dt_q_bot  = specific humidity tendency at the lowest level
 !
 !-----------------------------------------------------------------------
 
+  type(land_ice_atmos_boundary_type), intent(in) :: Surface_boundary
 type (atmos_boundary_data_type), intent(inout) :: Atmos
-real,  dimension(:,:),  intent(in)    :: frac_land, dt_t_bot, dt_q_bot
+!real,  dimension(:,:),  intent(in)    :: land_frac, dt_t_bot, dt_q_bot
                                       
 !-----------------------------------------------------------------------
 
 
-    Atmos%Surf_diff%delta_t = dt_t_bot
-    Atmos%Surf_diff%delta_q = dt_q_bot
+    Atmos%Surf_diff%delta_t = Surface_boundary%dt_t
+    Atmos%Surf_diff%delta_q = Surface_boundary%dt_q
 
-    call atmosphere_up (Atmos%Time,  frac_land, Atmos%Surf_diff, &
+    call atmosphere_up (Atmos%Time,  Surface_boundary%land_frac, Atmos%Surf_diff, &
                         Atmos%lprec, Atmos%fprec)
 
 !   --- advance time ---
@@ -157,11 +178,11 @@ real,  dimension(:,:),  intent(in)    :: frac_land, dt_t_bot, dt_q_bot
 
 !-----------------------------------------------------------------------
 
-end subroutine update_atmos_coupled_up
+end subroutine update_atmos_model_up
 
 !#######################################################################
 
-subroutine atmos_coupled_init (Atmos, Time_init, Time, Time_step)
+subroutine atmos_model_init (Atmos, Time_init, Time, Time_step)
 
 type (atmos_boundary_data_type), intent(inout) :: Atmos
 type (time_type), intent(in) :: Time_init, Time, Time_step
@@ -279,11 +300,11 @@ type (time_type), intent(in) :: Time_init, Time, Time_step
 
 !-----------------------------------------------------------------------
 
-end subroutine atmos_coupled_init
+end subroutine atmos_model_init
 
 !#######################################################################
 
-subroutine atmos_coupled_end (Atmos)
+subroutine atmos_model_end (Atmos)
 
 type (atmos_boundary_data_type), intent(in) :: Atmos
 integer :: unit, sec, day, dt
@@ -337,9 +358,9 @@ integer :: unit, sec, day, dt
 
 !-----------------------------------------------------------------------
 
-end subroutine atmos_coupled_end
+end subroutine atmos_model_end
 
 !#######################################################################
 
-end module atmos_coupled_mod
+end module atmos_model_mod
 
