@@ -66,7 +66,9 @@
       atmosphere_mod
     time_manager_mod
    diag_integral_mod
-       utilities_mod
+             fms_mod
+   field_manager_mod
+  tracer_manager_mod
 
 </PRE>
 </A><!-- END MODULES_USED -->
@@ -160,6 +162,12 @@
    Time        current time
    Time_step   atmospheric time step.
    Time_init   reference time.
+
+-- integer
+   pelist(:)
+
+-- logical
+   pe
 
 -------------------------------
 

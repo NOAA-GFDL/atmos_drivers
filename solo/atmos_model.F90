@@ -26,16 +26,19 @@ use       mpp_io_mod, only: mpp_open, mpp_close, MPP_ASCII, MPP_OVERWR, &
 
 use diag_manager_mod, only: diag_manager_init, diag_manager_end, get_base_date
 
+use  field_manager_mod, only: MODEL_ATMOS
+use tracer_manager_mod, only: register_tracers
+
 
 implicit none
 
 !-----------------------------------------------------------------------
 
 character(len=128), parameter :: version = &
-'$Id: atmos_model.F90,v 1.5 2002/01/18 19:36:41 fms Exp $'
+'$Id: atmos_model.F90,v 1.6 2002/07/16 22:31:19 fms Exp $'
 
 character(len=128), parameter :: tag = &
-'$Name: galway $'
+'$Name: havana $'
 
 !-----------------------------------------------------------------------
 ! ----- model time -----
@@ -94,6 +97,7 @@ contains
 
 !-----------------------------------------------------------------------
     integer :: total_days, total_seconds, unit, ierr, io, id, jd, kd
+    integer :: ntrace, ntprog, ntdiag, ntfamily
     integer :: date(6)
     type (time_type) :: Run_length
     logical :: use_namelist
@@ -105,6 +109,13 @@ contains
  id_end  = mpp_clock_init ('MAIN: termination'   , timing_level, flags=MPP_CLOCK_SYNC)
 
  call mpp_clock_begin (id_init)
+
+!-------------------------------------------
+! how many tracers have been registered?
+!  (will print number below)
+   call register_tracers ( MODEL_ATMOS, ntrace, ntprog, ntdiag, ntfamily )
+   if ( ntfamily > 0 ) call error_mesg ('atmos_model', 'ntfamily > 0', FATAL)
+
 
 !----- read namelist -------
 
@@ -150,6 +161,13 @@ contains
     endif
 
  16 format ('  current time used = day',i5,' hour',i3,2(':',i2.2)) 
+
+!  print number of tracers to logfile
+   if (mpp_pe() == mpp_root_pe()) then
+        write (stdlog(), '(a,i3)') 'Number of tracers =', ntrace
+        write (stdlog(), '(a,i3)') 'Number of prognostic tracers =', ntprog
+        write (stdlog(), '(a,i3)') 'Number of diagnostic tracers =', ntdiag
+   endif
 
 !-----------------------------------------------------------------------
 !------ initialize diagnostics manager ------

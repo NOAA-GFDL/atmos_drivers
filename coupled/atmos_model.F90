@@ -24,13 +24,16 @@ use time_manager_mod, only:  time_type, operator(+), get_time
 
 use mpp_domains_mod,  only: domain2d
 
-use    utilities_mod, only:  file_exist, open_file, check_nml_error,  &
-                             error_mesg, close_file, get_my_pe,       &
-                             read_data, write_data, FATAL
+use          fms_mod, only:  file_exist, open_restart_file, error_mesg,  &
+                             FATAL, close_file, mpp_pe, mpp_root_pe,     &
+                             write_version_number, stdlog,               &
+                             read_data, write_data
 
 use  diag_integral_mod, only: diag_integral_init, diag_integral_end, &
                               diag_integral_output
 
+use  field_manager_mod, only: MODEL_ATMOS
+use tracer_manager_mod, only: register_tracers
 
 !-----------------------------------------------------------------------
 
@@ -38,11 +41,11 @@ implicit none
 private
 
 public  update_atmos_model_down, update_atmos_model_up,   &
-        atmos_model_init, atmos_model_end, atmos_boundary_data_type
+        atmos_model_init, atmos_model_end, atmos_data_type
 
 !-----------------------------------------------------------------------
 
- type atmos_boundary_data_type
+ type atmos_data_type
      type (domain2d)               :: domain
      integer                       :: axes(4)
      real, pointer, dimension(:)   :: glon_bnd, glat_bnd,  &
@@ -53,6 +56,8 @@ public  update_atmos_model_down, update_atmos_model_up,   &
                                       lprec, fprec
      type (surf_diff_type)         :: Surf_diff
      type (time_type)              :: Time, Time_step, Time_init
+     integer, pointer              :: pelist(:)
+     logical                       :: pe
  end type
 
 !quantities going from land+ice to atmos
@@ -77,8 +82,8 @@ end type ice_atmos_boundary_type
 
 !-----------------------------------------------------------------------
 
-character(len=256) :: version = '$Id: atmos_model.F90,v 1.1 2002/01/30 18:53:47 fms Exp $'
-character(len=256) :: tag = '$Name: galway $'
+character(len=256) :: version = '$Id: atmos_model.F90,v 1.2 2002/07/16 22:31:10 fms Exp $'
+character(len=256) :: tag = '$Name: havana $'
 
 character(len=80) :: restart_format = 'atmos_coupled_mod restart format 01'
 
@@ -112,7 +117,7 @@ subroutine update_atmos_model_down( Surface_boundary, Atmos )
 !-----------------------------------------------------------------------
 
   type(land_ice_atmos_boundary_type), intent(inout) :: Surface_boundary
-type (atmos_boundary_data_type), intent(inout) :: Atmos
+type (atmos_data_type), intent(inout) :: Atmos
 !real,  dimension(:,:),  intent(in)    :: t_surf, albedo, rough_mom, &
 !                                         u_star, b_star, land_frac, &
 !                                         dtau_dv
@@ -148,7 +153,7 @@ type (atmos_boundary_data_type), intent(inout) :: Atmos
 !-----------------------------------------------------------------------
 
   type(land_ice_atmos_boundary_type), intent(in) :: Surface_boundary
-type (atmos_boundary_data_type), intent(inout) :: Atmos
+type (atmos_data_type), intent(inout) :: Atmos
 !real,  dimension(:,:),  intent(in)    :: land_frac, dt_t_bot, dt_q_bot
                                       
 !-----------------------------------------------------------------------
@@ -184,10 +189,10 @@ end subroutine update_atmos_model_up
 
 subroutine atmos_model_init (Atmos, Time_init, Time, Time_step)
 
-type (atmos_boundary_data_type), intent(inout) :: Atmos
+type (atmos_data_type), intent(inout) :: Atmos
 type (time_type), intent(in) :: Time_init, Time, Time_step
 
-  integer :: unit, log_unit
+  integer :: unit, ntrace, ntprog, ntdiag, ntfamily
   integer :: mlon, mlat, nlon, nlat, sec, day, ipts, jpts, dt, dto
   character(len=80) :: control
 !-----------------------------------------------------------------------
@@ -197,6 +202,12 @@ type (time_type), intent(in) :: Time_init, Time, Time_step
    Atmos % Time_init = Time_init
    Atmos % Time      = Time
    Atmos % Time_step = Time_step
+
+!-----------------------------------------------------------------------
+! how many tracers have been registered?
+!  (will print number below)
+   call register_tracers ( MODEL_ATMOS, ntrace, ntprog, ntdiag, ntfamily )
+   if ( ntfamily > 0 ) call error_mesg ('atmos_model', 'ntfamily > 0', FATAL)
 
 !-----------------------------------------------------------------------
 !  ----- initialize atmospheric model -----
@@ -248,15 +259,19 @@ type (time_type), intent(in) :: Time_init, Time, Time_step
 !-----------------------------------------------------------------------
 !---- print version number to logfile ----
 
-   log_unit = open_file ('logfile.out', action='append')
-   if (get_my_pe() == 0) &
-       write (log_unit,'(/,80("="),/(a))') trim(version), trim(tag)
+   call write_version_number ( version, tag )
+
+!  number of tracers
+   if (mpp_pe() == mpp_root_pe()) then
+        write (stdlog(), '(a,i3)') 'Number of tracers =', ntrace
+        write (stdlog(), '(a,i3)') 'Number of prognostic tracers =', ntprog
+        write (stdlog(), '(a,i3)') 'Number of diagnostic tracers =', ntdiag
+   endif
 
 !------ read initial state for several atmospheric fields ------
 
     if (file_exist('INPUT/atmos_coupled.res')) then
-        unit = open_file ('INPUT/atmos_coupled.res',  &
-                          form='native', action='read')
+        unit = open_restart_file ('INPUT/atmos_coupled.res', 'read')
        !--- check version number (format) of restart file ---
         read  (unit) control
         if (trim(control) /= trim(restart_format)) call error_mesg &
@@ -278,7 +293,7 @@ type (time_type), intent(in) :: Time_init, Time, Time_step
         if (dto /= dt) then
             Atmos % lprec = Atmos % lprec * real(dto)/real(dt)
             Atmos % fprec = Atmos % fprec * real(dto)/real(dt)
-            if (get_my_pe() == 0) write (log_unit,50)
+            if (mpp_pe() == mpp_root_pe()) write (stdlog(),50)
  50         format (/,'The model time step changed .... &
                       &modifying precipitation tendencies')
         endif
@@ -288,10 +303,6 @@ type (time_type), intent(in) :: Time_init, Time, Time_step
         Atmos % fprec = 0.0
         Atmos % gust  = 1.0
     endif
-
-!------ close log file unit -----
-
-   call close_file (log_unit)
 
 !------ initialize global integral package ------
 
@@ -306,7 +317,7 @@ end subroutine atmos_model_init
 
 subroutine atmos_model_end (Atmos)
 
-type (atmos_boundary_data_type), intent(in) :: Atmos
+type (atmos_data_type), intent(inout) :: Atmos
 integer :: unit, sec, day, dt
 
 !-----------------------------------------------------------------------
@@ -325,9 +336,8 @@ integer :: unit, sec, day, dt
 !------ write several atmospheric fields ------
 !        also resolution and time step
 
-  unit = open_file ('RESTART/atmos_coupled.res',   &
-                    form='native', action='write')
-  if (get_my_pe() == 0) then
+  unit = open_restart_file ('RESTART/atmos_coupled.res', 'write')
+  if (mpp_pe() == mpp_root_pe()) then
       write (unit) restart_format
       write (unit) size(Atmos%glon_bnd)-1, size(Atmos%glat_bnd)-1, dt
   endif
