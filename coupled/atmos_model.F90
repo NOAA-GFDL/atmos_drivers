@@ -1,142 +1,191 @@
-
 module atmos_model_mod
-
+!<CONTACT EMAIL="Bruce.Wyman@noaa.gov"> Bruce Wyman  
+!</CONTACT>
+! <REVIEWER EMAIL="Zhi.Liang@noaa.gov">
+!  Zhi Liang
+! </REVIEWER>
 !-----------------------------------------------------------------------
-!
-!          driver for atmospheric gcm using an
-!     atmospheric dynamical core and modular physics
-!
-!-----------------------------------------------------------------------
+!<OVERVIEW>
+!  Driver for the atmospheric model, contains routines to advance the
+!  atmospheric model state by one time step.
+!</OVERVIEW>
 
-use atmosphere_mod, only:  atmosphere_up,         &
-                           atmosphere_down,       &
-                           atmosphere_init,       &
-                           atmosphere_end,        &
-                           get_bottom_mass,       &
-                           get_bottom_wind,       &
-                           atmosphere_resolution, &
-                           atmosphere_domain,     &
-                           atmosphere_boundary,   &
-                           get_atmosphere_axes,   &
-                           surf_diff_type
+!<DESCRIPTION>
+!     This version of atmos_model_mod has been designed around the implicit
+!     version diffusion scheme of the GCM. It requires two routines to advance
+!     the atmospheric model one time step into the future. These two routines
+!     correspond to the down and up sweeps of the standard tridiagonal solver.
+!     Most atmospheric processes (dynamics,radiation,etc.) are performed
+!     in the down routine. The up routine finishes the vertical diffusion
+!     and computes moisture related terms (convection,large-scale condensation,
+!     and precipitation).
 
-use time_manager_mod, only:  time_type, operator(+), get_time
+!     The boundary variables needed by other component models for coupling
+!     are contained in a derived data type. A variable of this derived type
+!     is returned when initializing the atmospheric model. It is used by other
+!     routines in this module and by coupling routines. The contents of
+!     this derived type should only be modified by the atmospheric model.
 
-use mpp_domains_mod,  only: domain2d
+!</DESCRIPTION>
 
-use          fms_mod, only:  file_exist, open_restart_file, error_mesg,  &
-                             FATAL, close_file, mpp_pe, mpp_root_pe,     &
-                             write_version_number, stdlog,               &
-                             read_data, write_data, &
-                             mpp_clock_id, mpp_clock_begin, mpp_clock_end, &
-                             clock_flag_default, CLOCK_COMPONENT
-
-use  diag_integral_mod, only: diag_integral_init, diag_integral_end, &
-                              diag_integral_output
-
-use  field_manager_mod, only: MODEL_ATMOS
+use mpp_mod,            only: mpp_pe, mpp_root_pe, mpp_clock_id, mpp_clock_begin
+use mpp_mod,            only: mpp_clock_end, CLOCK_COMPONENT, mpp_error
+use mpp_domains_mod,    only: domain2d
+use fms_mod,            only: file_exist, error_mesg, field_size, FATAL, NOTE
+use fms_mod,            only: close_file,  write_version_number, stdlog
+use fms_mod,            only: read_data, write_data, clock_flag_default
+use fms_mod,            only: open_restart_file, open_namelist_file, check_nml_error
+use fms_io_mod,         only: get_restart_io_mode
+use time_manager_mod,   only: time_type, operator(+), get_time
+use field_manager_mod,  only: MODEL_ATMOS
 use tracer_manager_mod, only: register_tracers
+use diag_integral_mod,  only: diag_integral_init, diag_integral_end
+use diag_integral_mod,  only: diag_integral_output
+use atmosphere_mod,     only: atmosphere_up, atmosphere_down, atmosphere_init
+use atmosphere_mod,     only: atmosphere_end, get_bottom_mass, get_bottom_wind
+use atmosphere_mod,     only: atmosphere_resolution, atmosphere_domain
+use atmosphere_mod,     only: atmosphere_boundary, get_atmosphere_axes
+use atmosphere_mod,     only: surf_diff_type
 
 !-----------------------------------------------------------------------
 
 implicit none
 private
 
-public  update_atmos_model_down, update_atmos_model_up,   &
-        atmos_model_init, atmos_model_end, atmos_data_type
-
+public update_atmos_model_down, update_atmos_model_up
+public atmos_model_init, atmos_model_end, atmos_data_type
+public land_ice_atmos_boundary_type, land_atmos_boundary_type
+public ice_atmos_boundary_type
 !-----------------------------------------------------------------------
 
+!<PUBLICTYPE >
  type atmos_data_type
-     type (domain2d)               :: domain
-     integer                       :: axes(4)
-     real, pointer, dimension(:)   :: glon_bnd =>NULL(), &
-                                      glat_bnd =>NULL(), &
-                                       lon_bnd =>NULL(), &
-                                       lat_bnd =>NULL()
-     real, pointer, dimension(:,:) :: t_bot =>NULL(), &
-                                      q_bot =>NULL(), &
-                                      z_bot =>NULL(), &
-                                      p_bot =>NULL(), &
-                                      u_bot =>NULL(), &
-                                      v_bot =>NULL(), &
-                                      p_surf =>NULL(), &
-                                      gust  =>NULL(),  &
-                                      coszen =>NULL(), &
-                                      flux_sw =>NULL(), &
-                                      flux_lw =>NULL(), &
-                                      lprec =>NULL(),   &
-                                      fprec =>NULL()
-     type (surf_diff_type)         :: Surf_diff
-     type (time_type)              :: Time, Time_step, Time_init
-     integer, pointer              :: pelist(:) =>NULL()
-     logical                       :: pe
+     type (domain2d)               :: domain             ! domain decomposition
+     integer                       :: axes(4)            ! axis indices (returned by diag_manager) for the atmospheric grid 
+                                                         ! (they correspond to the x, y, pfull, phalf axes)
+     real, pointer, dimension(:)   :: glon_bnd => NULL() ! global longitude axis grid box boundaries in radians.
+     real, pointer, dimension(:)   :: glat_bnd => NULL() ! global latitude axis grid box boundaries in radians.
+     real, pointer, dimension(:)   :: lon_bnd  => NULL() ! local longitude axis grid box boundaries in radians.
+     real, pointer, dimension(:)   :: lat_bnd  => NULL() ! local latitude axis grid box boundaries in radians.
+     real, pointer, dimension(:,:) :: t_bot    => NULL() ! temperature at lowest model level
+     real, pointer, dimension(:,:) :: q_bot    => NULL() ! specific humidity at lowest model level
+     real, pointer, dimension(:,:) :: z_bot    => NULL() ! height above the surface for the lowest model level
+     real, pointer, dimension(:,:) :: p_bot    => NULL() ! pressure at lowest model level
+     real, pointer, dimension(:,:) :: u_bot    => NULL() ! zonal wind component at lowest model level
+     real, pointer, dimension(:,:) :: v_bot    => NULL() ! meridional wind component at lowest model level
+     real, pointer, dimension(:,:) :: p_surf   => NULL() ! surface pressure 
+     real, pointer, dimension(:,:) :: gust     => NULL() ! gustiness factor
+     real, pointer, dimension(:,:) :: coszen   => NULL() ! cosine of the zenith angle
+     real, pointer, dimension(:,:) :: flux_sw  => NULL() ! net shortwave flux (W/m2) at the surface
+     real, pointer, dimension(:,:) :: flux_sw_dir            =>NULL()
+     real, pointer, dimension(:,:) :: flux_sw_dif            =>NULL()
+     real, pointer, dimension(:,:) :: flux_sw_down_vis_dir   =>NULL()
+     real, pointer, dimension(:,:) :: flux_sw_down_vis_dif   =>NULL()
+     real, pointer, dimension(:,:) :: flux_sw_down_total_dir =>NULL()
+     real, pointer, dimension(:,:) :: flux_sw_down_total_dif =>NULL()
+     real, pointer, dimension(:,:) :: flux_sw_vis            =>NULL()
+     real, pointer, dimension(:,:) :: flux_sw_vis_dir        =>NULL()
+     real, pointer, dimension(:,:) :: flux_sw_vis_dif        =>NULL()
+     real, pointer, dimension(:,:) :: flux_lw  => NULL() ! net longwave flux (W/m2) at the surface
+     real, pointer, dimension(:,:) :: lprec    => NULL() ! mass of liquid precipitation since last time step (Kg/m2)
+     real, pointer, dimension(:,:) :: fprec    => NULL() ! ass of frozen precipitation since last time step (Kg/m2)
+     type (surf_diff_type)         :: Surf_diff          ! store data needed by the multi-step version of the diffusion algorithm
+     type (time_type)              :: Time               ! current time
+     type (time_type)              :: Time_step          ! atmospheric time step.
+     type (time_type)              :: Time_init          ! reference time.
+     integer, pointer              :: pelist(:) =>NULL() ! pelist where atmosphere is running.
+     logical                       :: pe                 ! current pe.
  end type
+!</PUBLICTYPE >
 
-type, public :: land_ice_atmos_boundary_type
-!variables of this type are declared by coupler_main, allocated by flux_exchange_init
+!<PUBLICTYPE >
+type land_ice_atmos_boundary_type
+   ! variables of this type are declared by coupler_main, allocated by flux_exchange_init.
 !quantities going from land+ice to atmos
-!       t         = surface temperature for radiation calculations
-!       albedo    = surface albedo for radiation calculations
-!       land_frac = fraction amount of land in a grid box
-!       dt_t      = temperature tendency at the lowest level
-!       dt_q      = specific humidity tendency at the lowest level
-!       u_flux    = zonal wind stress
-!       v_flux    = meridional wind stress
-!       dtaudv    = derivative of wind stress w.r.t. the lowest level wind speed
-!       u_star    = friction velocity
-!       b_star    = bouyancy scale
-!       q_star    = moisture scale
-!       rough_mom = surface roughness (used for momentum
-   real, dimension(:,:), pointer :: t =>NULL(), &
-                                    albedo =>NULL(), &
-                                    land_frac =>NULL()
-   real, dimension(:,:), pointer :: dt_t =>NULL(), &
-                                    dt_q =>NULL()
-   real, dimension(:,:), pointer :: u_flux =>NULL(), &
-                                    v_flux =>NULL(), &
-                                    dtaudv =>NULL(), &
-                                    u_star =>NULL(), &
-                                    b_star =>NULL(), &
-                                    q_star =>NULL(), &
-                                    rough_mom =>NULL()
-   real, dimension(:,:,:), pointer :: data =>NULL() !collective field for "named" fields above
-   integer :: xtype             !REGRID, REDIST or DIRECT
+   real, dimension(:,:),   pointer :: t              =>NULL() ! surface temperature for radiation calculations
+   real, dimension(:,:),   pointer :: albedo         =>NULL() ! surface albedo for radiation calculations
+   real, dimension(:,:),   pointer :: albedo_vis_dir =>NULL()
+   real, dimension(:,:),   pointer :: albedo_nir_dir =>NULL()
+   real, dimension(:,:),   pointer :: albedo_vis_dif =>NULL()
+   real, dimension(:,:),   pointer :: albedo_nir_dif =>NULL()
+   real, dimension(:,:),   pointer :: land_frac      =>NULL() ! fraction amount of land in a grid box 
+   real, dimension(:,:),   pointer :: dt_t           =>NULL() ! temperature tendency at the lowest level
+   real, dimension(:,:),   pointer :: dt_q           =>NULL() ! specific humidity tendency at the lowest level
+   real, dimension(:,:),   pointer :: u_flux         =>NULL() ! zonal wind stress
+   real, dimension(:,:),   pointer :: v_flux         =>NULL() ! meridional wind stress
+   real, dimension(:,:),   pointer :: dtaudv         =>NULL() ! derivative of wind stress w.r.t. the lowest level wind speed
+   real, dimension(:,:),   pointer :: u_star         =>NULL() ! friction velocity
+   real, dimension(:,:),   pointer :: b_star         =>NULL() ! bouyancy scale
+   real, dimension(:,:),   pointer :: q_star         =>NULL() ! moisture scale
+   real, dimension(:,:),   pointer :: rough_mom      =>NULL() ! surface roughness (used for momentum)
+   real, dimension(:,:,:), pointer :: data           =>NULL() !collective field for "named" fields above
+   integer                         :: xtype                   !REGRID, REDIST or DIRECT
 end type land_ice_atmos_boundary_type
-!quantities going from land alone to atmos (none at present)
-type, public :: land_atmos_boundary_type
-!   private
-   real, dimension(:,:), pointer :: data =>NULL()
+!</PUBLICTYPE >
+
+!<PUBLICTYPE >
+type :: land_atmos_boundary_type
+   real, dimension(:,:), pointer :: data =>NULL() ! quantities going from land alone to atmos (none at present)
 end type land_atmos_boundary_type
+!</PUBLICTYPE >
+
+!<PUBLICTYPE >
 !quantities going from ice alone to atmos (none at present)
-type, public :: ice_atmos_boundary_type
-!   private
-   real, dimension(:,:), pointer :: data =>NULL()
+type :: ice_atmos_boundary_type
+   real, dimension(:,:), pointer :: data =>NULL() ! quantities going from ice alone to atmos (none at present)
 end type ice_atmos_boundary_type
+!</PUBLICTYPE >
+
 !Balaji
-integer, private :: atmClock
+integer :: atmClock
 !-----------------------------------------------------------------------
 
-character(len=256) :: version = '$Id: atmos_model.F90,v 10.0 2003/10/24 22:00:21 fms Exp $'
-character(len=256) :: tag = '$Name: jakarta $'
+character(len=128) :: version = '$Id: atmos_model.F90,v 11.0 2004/09/28 19:07:54 fms Exp $'
+character(len=128) :: tagname = '$Name: khartoum $'
 
+!-----------------------------------------------------------------------
 character(len=80) :: restart_format = 'atmos_coupled_mod restart format 01'
-
 !-----------------------------------------------------------------------
-
+logical           :: do_netcdf_restart = .true.
+logical           :: restart_tbot_qbot = .false.
+namelist /atmos_model_nml/ do_netcdf_restart, restart_tbot_qbot  
 
 contains
 
 !#######################################################################
+! <SUBROUTINE NAME="update_atmos_model_down">
+!
+! <OVERVIEW>
+!   compute the atmospheric tendencies for dynamics, radiation, 
+!   vertical diffusion of momentum, tracers, and heat/moisture.
+! </OVERVIEW>
+!
+!<DESCRIPTION>
+!   Called every time step as the atmospheric driver to compute the
+!   atmospheric tendencies for dynamics, radiation, vertical diffusion of
+!   momentum, tracers, and heat/moisture.  For heat/moisture only the
+!   downward sweep of the tridiagonal elimination is performed, hence
+!   the name "_down". 
+!</DESCRIPTION>
+
+!   <TEMPLATE>
+!     call  update_atmos_model_down( Surface_boundary, Atmos )
+!   </TEMPLATE>
+
+! <IN NAME = "Surface_boundary" TYPE="type(land_ice_atmos_boundary_type)">
+!   Derived-type variable that contains quantities going from land+ice to atmos.  
+! </IN>
+
+! <INOUT NAME="Atmos" TYPE="type(atmos_data_type)">
+!   Derived-type variable that contains fields needed by the flux exchange module.
+!   These fields describe the atmospheric grid and are needed to
+!   compute/exchange fluxes with other component models.  All fields in this
+!   variable type are allocated for the global grid (without halo regions).
+! </INOUT>
 
 subroutine update_atmos_model_down( Surface_boundary, Atmos )
-!-----------------------------------------------------------------------
-!                       atmospheric driver
-!    performs radiation, damping, and vertical diffusion of momentum,
-!    tracers, and downward heat/moisture
 !
 !-----------------------------------------------------------------------
-
   type(land_ice_atmos_boundary_type), intent(inout) :: Surface_boundary
   type (atmos_data_type), intent(inout) :: Atmos
                                       
@@ -144,28 +193,72 @@ subroutine update_atmos_model_down( Surface_boundary, Atmos )
   call mpp_clock_begin(atmClock)
 
     call atmosphere_down (Atmos%Time, Surface_boundary%land_frac,        &
-                          Surface_boundary%t,  Surface_boundary%albedo, Surface_boundary%rough_mom,   &
-                          Surface_boundary%u_star,  Surface_boundary%b_star,              &
+                          Surface_boundary%t,  Surface_boundary%albedo,  &
+                          Surface_boundary%albedo_vis_dir,   &
+                          Surface_boundary%albedo_nir_dir,   &
+                          Surface_boundary%albedo_vis_dif,   &
+                          Surface_boundary%albedo_nir_dif,   &
+                          Surface_boundary%rough_mom,   &
+                          Surface_boundary%u_star,      &
+                          Surface_boundary%b_star,      &
                           Surface_boundary%q_star, &
-                          Surface_boundary%dtaudv, Surface_boundary%u_flux,  Surface_boundary%v_flux,       &
-                          Atmos%gust, Atmos%coszen,     &
-                          Atmos%flux_sw, Atmos%flux_lw, &
+                          Surface_boundary%dtaudv,      &
+                          Surface_boundary%u_flux,      &
+                          Surface_boundary%v_flux,      &
+                          Atmos%gust,                   &
+                          Atmos%coszen,                 &
+                          Atmos%flux_sw,                &
+                          Atmos%flux_sw_dir,            &
+                          Atmos%flux_sw_dif,            &
+                          Atmos%flux_sw_down_vis_dir,   &
+                          Atmos%flux_sw_down_vis_dif,   &
+                          Atmos%flux_sw_down_total_dir, &
+                          Atmos%flux_sw_down_total_dif, &
+                          Atmos%flux_sw_vis,            &
+                          Atmos%flux_sw_vis_dir,        &
+                          Atmos%flux_sw_vis_dif,        &
+                          Atmos%flux_lw,                &
                           Atmos%Surf_diff               )
 
 !-----------------------------------------------------------------------
 
   call mpp_clock_end(atmClock)
  end subroutine update_atmos_model_down
+! </SUBROUTINE>
 
 !#######################################################################
+! <SUBROUTINE NAME="update_atmos_model_up">
+!
+!-----------------------------------------------------------------------
+! <OVERVIEW>
+!   upward vertical diffusion of heat/moisture and moisture processes
+! </OVERVIEW>
+
+!<DESCRIPTION>
+!   Called every time step as the atmospheric driver to finish the upward
+!   sweep of the tridiagonal elimination for heat/moisture and compute the
+!   convective and large-scale tendencies.  The atmospheric variables are
+!   advanced one time step and tendencies set back to zero. 
+!</DESCRIPTION>
+
+! <TEMPLATE>
+!     call  update_atmos_model_up( Surface_boundary, Atmos )
+! </TEMPLATE>
+
+! <IN NAME = "Surface_boundary" TYPE="type(land_ice_atmos_boundary_type)">
+!   Derived-type variable that contains quantities going from land+ice to atmos.  
+! </IN>
+
+! <INOUT NAME="Atmos" TYPE="type(atmos_data_type)">
+!   Derived-type variable that contains fields needed by the flux exchange module.
+!   These fields describe the atmospheric grid and are needed to
+!   compute/exchange fluxes with other component models.  All fields in this
+!   variable type are allocated for the global grid (without halo regions).
+! </INOUT>
 
  subroutine update_atmos_model_up( Surface_boundary, Atmos )
 
 !-----------------------------------------------------------------------
-!                       atmospheric driver
-!    performs upward vertical diffusion of heat/moisture and
-!    moisture processes
-!
 !-----------------------------------------------------------------------
 
 type(land_ice_atmos_boundary_type), intent(in) :: Surface_boundary
@@ -201,17 +294,51 @@ type (atmos_data_type), intent(inout) :: Atmos
   call mpp_clock_end(atmClock)
 
 end subroutine update_atmos_model_up
+! </SUBROUTINE>
 
 !#######################################################################
+! <SUBROUTINE NAME="atmos_model_init">
+!
+! <OVERVIEW>
+! Routine to initialize the atmospheric model
+! </OVERVIEW>
+
+! <DESCRIPTION>
+!     This routine allocates storage and returns a variable of type
+!     atmos_boundary_data_type, and also reads a namelist input and restart file. 
+! </DESCRIPTION>
+
+! <TEMPLATE>
+!     call atmos_model_init (Atmos, Time_init, Time, Time_step)
+! </TEMPLATE>
+
+! <IN NAME="Time_init" TYPE="type(time_type)" >
+!   The base (or initial) time of the experiment.
+! </IN>
+
+! <IN NAME="Time" TYPE="type(time_type)" >
+!   The current time.
+! </IN>
+
+! <IN NAME="Time_step" TYPE="type(time_type)" >
+!   The atmospheric model/physics time step.
+! </IN>
+
+! <INOUT NAME="Atmos" TYPE="type(atmos_data_type)">
+!   Derived-type variable that contains fields needed by the flux exchange module.
+! </INOUT>
 
 subroutine atmos_model_init (Atmos, Time_init, Time, Time_step)
+
 
 type (atmos_data_type), intent(inout) :: Atmos
 type (time_type), intent(in) :: Time_init, Time, Time_step
 
-  integer :: unit, ntrace, ntprog, ntdiag, ntfamily
+  integer :: unit, ntrace, ntprog, ntdiag, ntfamily, i, j
   integer :: mlon, mlat, nlon, nlat, sec, day, ipts, jpts, dt, dto
+  real    :: r_ipts, r_jpts, r_dto
   character(len=80) :: control
+  integer :: ierr, io, siz(4)
 !-----------------------------------------------------------------------
 
 !---- set the atmospheric model time ------
@@ -219,6 +346,17 @@ type (time_type), intent(in) :: Time_init, Time, Time_step
    Atmos % Time_init = Time_init
    Atmos % Time      = Time
    Atmos % Time_step = Time_step
+
+   if ( file_exist('input.nml')) then
+      unit = open_namelist_file ( )
+      ierr=1
+      do while (ierr /= 0)
+         read  (unit, nml=atmos_model_nml, iostat=io, end=10)
+         ierr = check_nml_error(io,'atmos_model_nml')
+      enddo
+ 10     call close_file (unit)
+   endif
+   call get_restart_io_mode(do_netcdf_restart)
 
 !-----------------------------------------------------------------------
 ! how many tracers have been registered?
@@ -252,11 +390,36 @@ type (time_type), intent(in) :: Time_init, Time, Time_step
                Atmos % p_surf   (nlon,nlat), &
                Atmos % gust     (nlon,nlat), &
                Atmos % flux_sw  (nlon,nlat), &
+               Atmos % flux_sw_dir (nlon,nlat), &
+               Atmos % flux_sw_dif (nlon,nlat), &
+               Atmos % flux_sw_down_vis_dir (nlon,nlat), &
+               Atmos % flux_sw_down_vis_dif (nlon,nlat), &
+               Atmos % flux_sw_down_total_dir (nlon,nlat), &
+               Atmos % flux_sw_down_total_dif (nlon,nlat), &
+               Atmos % flux_sw_vis (nlon,nlat), &
+               Atmos % flux_sw_vis_dir (nlon,nlat), &
+               Atmos % flux_sw_vis_dif(nlon,nlat), &
                Atmos % flux_lw  (nlon,nlat), &
                Atmos % coszen   (nlon,nlat), &
                Atmos % lprec    (nlon,nlat), &
                Atmos % fprec    (nlon,nlat)  )
 
+    do j = 1, nlat
+       do i = 1, nlon    
+          Atmos % flux_sw(i,j)                 = 0.0
+          Atmos % flux_lw(i,j)                 = 0.0    
+          Atmos % flux_sw_dir (i,j)            = 0.0
+          Atmos % flux_sw_dif (i,j)            = 0.0 
+          Atmos % flux_sw_down_vis_dir (i,j)   = 0.0 
+          Atmos % flux_sw_down_vis_dif (i,j)   = 0.0 
+          Atmos % flux_sw_down_total_dir (i,j) = 0.0 
+          Atmos % flux_sw_down_total_dif (i,j) = 0.0 
+          Atmos % flux_sw_vis (i,j)            = 0.0 
+          Atmos % flux_sw_vis_dir (i,j)        = 0.0 
+          Atmos % flux_sw_vis_dif(i,j)         = 0.0 
+          Atmos % coszen(i,j)                  = 0.0 
+       enddo
+    enddo
 !-----------------------------------------------------------------------
 !------ get initial state for dynamics -------
 
@@ -276,7 +439,13 @@ type (time_type), intent(in) :: Time_init, Time, Time_step
 !-----------------------------------------------------------------------
 !---- print version number to logfile ----
 
-   call write_version_number ( version, tag )
+   call write_version_number ( version, tagname )
+!  write the namelist to a log file
+   if( mpp_pe()==0 ) then
+      unit = stdlog( )
+      write (unit, nml=atmos_model_nml)
+      call close_file (unit)
+   endif
 
 !  number of tracers
    if (mpp_pe() == mpp_root_pe()) then
@@ -287,40 +456,72 @@ type (time_type), intent(in) :: Time_init, Time, Time_step
 
 !------ read initial state for several atmospheric fields ------
 
-    if (file_exist('INPUT/atmos_coupled.res')) then
-        unit = open_restart_file ('INPUT/atmos_coupled.res', 'read')
-       !--- check version number (format) of restart file ---
-        read  (unit) control
-        if (trim(control) /= trim(restart_format)) call error_mesg &
-             ('coupled_atmos_init', 'invalid restart format', FATAL)
-       !--- check resolution and time step ---
-        read  (unit) ipts,jpts,dto
-        if (ipts /= mlon .or. jpts /= mlat) call error_mesg &
-        ('coupled_atmos_init', 'incorrect resolution on restart file', FATAL)
-       !--- read data ---
-        call read_data ( unit, Atmos % lprec )
-        call read_data ( unit, Atmos % fprec )
-        call read_data ( unit, Atmos % gust  )
-        call close_file (unit)
+   if ( file_exist('INPUT/atmos_coupled.res.nc') ) then
+       if(mpp_pe() == mpp_root_pe() ) call mpp_error ('atmos_model_mod', &
+                   'Reading netCDF formatted restart file: INPUT/atmos_coupled.res.nc', NOTE)
+       call read_data('INPUT/atmos_coupled.res.nc', 'glon_bnd', ipts, no_domain=.true.)
+       call read_data('INPUT/atmos_coupled.res.nc', 'glat_bnd', jpts, no_domain=.true.)
 
-       !---- if the time step has changed then convert ----
+       if (ipts /= mlon .or. jpts /= mlat) call error_mesg &
+               ('coupled_atmos_init', 'incorrect resolution on restart file', FATAL)
+
+       call read_data('INPUT/atmos_coupled.res.nc', 'dt', dto, no_domain=.true.)
+       call read_data('INPUT/atmos_coupled.res.nc', 'lprec', Atmos % lprec, Atmos%domain)
+       call read_data('INPUT/atmos_coupled.res.nc', 'fprec', Atmos % fprec, Atmos%domain)
+       call read_data('INPUT/atmos_coupled.res.nc', 'gust', Atmos % gust, Atmos%domain)
+
+       if (restart_tbot_qbot) then
+          call read_data('INPUT/atmos_coupled.res.nc', 't_bot', Atmos%t_bot, Atmos%domain)
+          call read_data('INPUT/atmos_coupled.res.nc', 'q_bot', Atmos%q_bot, Atmos%domain)
+       endif 
+
+       call get_time (Atmos % Time_step, sec, day)
+       dt = sec + 86400*day  ! integer seconds
+       if (dto /= dt) then
+          Atmos % lprec = Atmos % lprec * real(dto)/real(dt)
+          Atmos % fprec = Atmos % fprec * real(dto)/real(dt)
+          if (mpp_pe() == mpp_root_pe()) write (stdlog(),50)
+       endif
+   else if (file_exist('INPUT/atmos_coupled.res')) then
+          if(mpp_pe() == mpp_root_pe() ) call mpp_error ('atmos_model_mod', &
+                   'Reading native formatted restart file: INPUT/atmos_coupled.res', NOTE)
+          unit = open_restart_file ('INPUT/atmos_coupled.res', 'read')
+          !--- check version number (format) of restart file ---
+          read  (unit) control
+          if (trim(control) /= trim(restart_format)) call error_mesg &
+               ('coupled_atmos_init', 'invalid restart format', FATAL)
+          !--- check resolution and time step ---
+          read  (unit) ipts,jpts,dto
+          if (ipts /= mlon .or. jpts /= mlat) call error_mesg &
+               ('coupled_atmos_init', 'incorrect resolution on restart file', FATAL)
+
+          !--- read data ---
+          call read_data ( unit, Atmos % lprec )
+          call read_data ( unit, Atmos % fprec )
+          call read_data ( unit, Atmos % gust  )
+          if (restart_tbot_qbot) then
+             call read_data ( unit, Atmos % t_bot  )
+             call read_data ( unit, Atmos % q_bot )
+          endif
+          call close_file (unit)
+
+          !---- if the time step has changed then convert ----
        !        tendency to conserve mass of water
-        call get_time (Atmos % Time_step, sec, day)
-        dt = sec + 86400*day  ! integer seconds
-        if (dto /= dt) then
-            Atmos % lprec = Atmos % lprec * real(dto)/real(dt)
-            Atmos % fprec = Atmos % fprec * real(dto)/real(dt)
-            if (mpp_pe() == mpp_root_pe()) write (stdlog(),50)
+          call get_time (Atmos % Time_step, sec, day)
+          dt = sec + 86400*day  ! integer seconds
+          if (dto /= dt) then
+             Atmos % lprec = Atmos % lprec * real(dto)/real(dt)
+             Atmos % fprec = Atmos % fprec * real(dto)/real(dt)
+             if (mpp_pe() == mpp_root_pe()) write (stdlog(),50)
  50         format (/,'The model time step changed .... &
                       &modifying precipitation tendencies')
-        endif
-
-    else
+          endif
+   else
         Atmos % lprec = 0.0
         Atmos % fprec = 0.0
         Atmos % gust  = 1.0
-    endif
-
+   endif
+  
 !------ initialize global integral package ------
 
     call diag_integral_init (Atmos % Time_init, Atmos % Time,  &
@@ -329,14 +530,34 @@ type (time_type), intent(in) :: Time_init, Time, Time_step
 !-----------------------------------------------------------------------
 atmClock = mpp_clock_id( 'Atmosphere', flags=clock_flag_default, grain=CLOCK_COMPONENT )
 end subroutine atmos_model_init
+! </SUBROUTINE>
 
 !#######################################################################
+! <SUBROUTINE NAME="atmos_model_end">
+!
+! <OVERVIEW>
+!  termination routine for atmospheric model
+! </OVERVIEW>
+
+! <DESCRIPTION>
+!  Call once to terminate this module and any other modules used.
+!  This routine writes a restart file and deallocates storage
+!  used by the derived-type variable atmos_boundary_data_type.
+! </DESCRIPTION>
+
+! <TEMPLATE>
+!   call atmos_model_end (Atmos)
+! </TEMPLATE>
+
+! <INOUT NAME="Atmos" TYPE="type(atmos_data_type)">
+!   Derived-type variable that contains fields needed by the flux exchange module.
+! </INOUT>
 
 subroutine atmos_model_end (Atmos)
 
-type (atmos_data_type), intent(inout) :: Atmos
+type (atmos_data_type), intent(in) :: Atmos
 integer :: unit, sec, day, dt
-
+character(len=64) :: fname = 'RESTART/atmos_coupled.res.nc'
 !-----------------------------------------------------------------------
 !---- termination routine for atmospheric model ----
                                               
@@ -353,15 +574,35 @@ integer :: unit, sec, day, dt
 !------ write several atmospheric fields ------
 !        also resolution and time step
 
-  unit = open_restart_file ('RESTART/atmos_coupled.res', 'write')
-  if (mpp_pe() == mpp_root_pe()) then
-      write (unit) restart_format
-      write (unit) size(Atmos%glon_bnd)-1, size(Atmos%glat_bnd)-1, dt
+  if( do_netcdf_restart) then
+     if(mpp_pe() == mpp_root_pe()) then
+        call mpp_error ('atmos_model_mod', 'Writing netCDF formatted restart file.', NOTE)
+     endif
+     call write_data(fname, 'glon_bnd', real( size(Atmos%glon_bnd(:))-1), no_domain=.true. )
+     call write_data(fname, 'glat_bnd', real( size(Atmos%glat_bnd(:))-1), no_domain=.true. )
+     call write_data(fname, 'dt', real( dt), no_domain=.true. )
+     call write_data(fname, 'lprec', Atmos%lprec, Atmos%domain)
+     call write_data(fname, 'fprec', Atmos%fprec, Atmos%domain)
+     call write_data(fname, 'gust', Atmos%gust, Atmos%domain)
+     if(restart_tbot_qbot) then
+        call write_data(fname, 't_bot', Atmos%t_bot, Atmos%domain)
+        call write_data(fname, 'q_bot', Atmos%q_bot, Atmos%domain)
+     endif
+  else
+     unit = open_restart_file ('RESTART/atmos_coupled.res', 'write')
+     if (mpp_pe() == mpp_root_pe()) then
+        write (unit) restart_format
+        write (unit) size(Atmos%glon_bnd(:))-1, size(Atmos%glat_bnd(:))-1, dt
+     endif
+     call write_data ( unit, Atmos % lprec )
+     call write_data ( unit, Atmos % fprec )
+     call write_data ( unit, Atmos % gust  )
+     if(restart_tbot_qbot) then
+        call write_data ( unit, Atmos % t_bot  )
+        call write_data ( unit, Atmos % q_bot  )
+     endif
+     call close_file (unit)
   endif
-  call write_data ( unit, Atmos % lprec )
-  call write_data ( unit, Atmos % fprec )
-  call write_data ( unit, Atmos % gust  )
-  call close_file (unit)
 
 !-------- deallocate space --------
 
@@ -378,6 +619,15 @@ integer :: unit, sec, day, dt
                Atmos % p_surf   , &
                Atmos % gust     , &
                Atmos % flux_sw  , &
+               Atmos % flux_sw_dir  , &
+               Atmos % flux_sw_dif  , &
+               Atmos % flux_sw_down_vis_dir  , &
+               Atmos % flux_sw_down_vis_dif  , &
+               Atmos % flux_sw_down_total_dir  , &
+               Atmos % flux_sw_down_total_dif  , &
+               Atmos % flux_sw_vis  , &
+               Atmos % flux_sw_vis_dir  , &
+               Atmos % flux_sw_vis_dif  , &
                Atmos % flux_lw  , &
                Atmos % coszen   , &
                Atmos % lprec    , &
@@ -386,6 +636,7 @@ integer :: unit, sec, day, dt
 !-----------------------------------------------------------------------
 
 end subroutine atmos_model_end
+! </SUBROUTINE>
 
 !#######################################################################
 

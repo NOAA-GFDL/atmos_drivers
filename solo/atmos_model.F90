@@ -22,8 +22,6 @@ use          fms_mod, only: file_exist, check_nml_error,                &
                             mpp_clock_end, CLOCK_COMPONENT
 use       fms_io_mod, only: fms_io_exit
 
-use    constants_mod, only: constants_init
-
 use       mpp_io_mod, only: mpp_open, mpp_close, MPP_ASCII, MPP_OVERWR, &
                             MPP_SEQUENTIAL, MPP_SINGLE, MPP_RDONLY, MPP_DELETE
 
@@ -37,15 +35,15 @@ implicit none
 !-----------------------------------------------------------------------
 
 character(len=128), parameter :: version = &
-'$Id: atmos_model.F90,v 10.0 2003/10/24 22:00:21 fms Exp $'
+'$Id: atmos_model.F90,v 11.0 2004/09/28 19:09:58 fms Exp $'
 
 character(len=128), parameter :: tag = &
-'$Name: jakarta $'
+'$Name: khartoum $'
 
 !-----------------------------------------------------------------------
 !       ----- model time -----
 ! there is no calendar associated with model of this type
-! therfore, year=0, month=0 are assumed
+! therefore, year=0, month=0 are assumed
 
    type (time_type) :: Time, Time_init, Time_end, Time_step_atmos
    integer :: num_atmos_calls, na
@@ -71,7 +69,6 @@ character(len=128), parameter :: tag = &
 !#######################################################################
 
  call fms_init ( )
- call constants_init 
  call atmos_model_init 
 
 !   ------ atmosphere integration loop -------
@@ -118,7 +115,6 @@ contains
 ! how many tracers have been registered?
 !  (will print number below)
    call register_tracers ( MODEL_ATMOS, ntrace, ntprog, ntdiag, ntfamily )
-   if ( ntfamily > 0 ) call error_mesg ('atmos_model', 'ntfamily > 0', FATAL)
 
 
 !----- read namelist -------
