@@ -52,8 +52,8 @@ public  update_atmos_coupled_down, update_atmos_coupled_up,   &
 
 !-----------------------------------------------------------------------
 
-character(len=256) :: version = '$Id: atmos_coupled.F90,v 1.2 2000/07/28 20:15:38 fms Exp $'
-character(len=256) :: tag = '$Name: bombay $'
+character(len=256) :: version = '$Id: atmos_coupled.F90,v 1.3 2000/11/22 14:33:18 fms Exp $'
+character(len=256) :: tag = '$Name: calgary $'
 
 !-----------------------------------------------------------------------
 
@@ -91,11 +91,6 @@ real,  dimension(:,:),  intent(in)    :: t_surf, albedo, rough_mom, &
                                          dtau_dv
 real,  dimension(:,:),  intent(inout) :: tau_x,  tau_y
                                       
-!-----------------------------------------------------------------------
-!---------------------- do one time step -------------------------------
-
-     Atmos % Time = Atmos % Time + Atmos % Time_step
-
 !-----------------------------------------------------------------------
 
     call atmosphere_down (Atmos%Time, frac_land,        &
@@ -135,6 +130,11 @@ real,  dimension(:,:),  intent(in)    :: frac_land, dt_t_bot, dt_q_bot
 
     call atmosphere_up (Atmos%Time,  frac_land, Atmos%Surf_diff, &
                         Atmos%lprec, Atmos%fprec)
+
+!   --- advance time ---
+
+    Atmos % Time = Atmos % Time + Atmos % Time_step
+
 
     call get_bottom_mass (Atmos % t_bot, Atmos % q_bot,  &
                           Atmos % p_bot, Atmos % z_bot,  &
