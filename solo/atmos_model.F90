@@ -20,11 +20,12 @@ use          fms_mod, only: file_exist, check_nml_error,                &
                             open_namelist_file, open_restart_file,      &
                             mpp_clock_id, mpp_clock_begin,              &
                             mpp_clock_end, CLOCK_COMPONENT
+use       fms_io_mod, only: fms_io_exit
 
 use    constants_mod, only: constants_init
 
 use       mpp_io_mod, only: mpp_open, mpp_close, MPP_ASCII, MPP_OVERWR, &
-                            MPP_SEQUENTIAL, MPP_SINGLE, MPP_DELETE
+                            MPP_SEQUENTIAL, MPP_SINGLE, MPP_RDONLY, MPP_DELETE
 
 use diag_manager_mod, only: diag_manager_init, diag_manager_end, get_base_date
 
@@ -36,10 +37,10 @@ implicit none
 !-----------------------------------------------------------------------
 
 character(len=128), parameter :: version = &
-'$Id: atmos_model.F90,v 1.7 2003/04/09 20:52:53 fms Exp $'
+'$Id: atmos_model.F90,v 10.0 2003/10/24 22:00:21 fms Exp $'
 
 character(len=128), parameter :: tag = &
-'$Name: inchon $'
+'$Name: jakarta $'
 
 !-----------------------------------------------------------------------
 !       ----- model time -----
@@ -90,6 +91,7 @@ character(len=128), parameter :: tag = &
 !   ------ end of atmospheric time step loop -----
 
  call atmos_model_end
+ call fms_io_exit
  call fms_end
 
 contains
@@ -140,8 +142,8 @@ contains
 !----- read restart file -----
 
    if (file_exist('INPUT/atmos_model.res')) then
-       unit = open_restart_file ('INPUT/atmos_model.res', 'read')
-       read  (unit) date
+       call mpp_open (unit, 'INPUT/atmos_model.res', action=MPP_RDONLY, nohdrs=.true.)
+       read  (unit,*) date
        call mpp_close (unit)
    else
     ! use namelist time if restart file does not exist
@@ -237,13 +239,10 @@ contains
       call atmosphere_init (Time_init, Time, Time_step_atmos)
 
 !-----------------------------------------------------------------------
-!   open and close output restart file to make sure the
-!   restart directory exists, it is better to fail now rather
-!   than after the model has completed a full integration
+!   open and close dummy file in restart dir to check if dir exists
 
-      unit = open_restart_file ('RESTART/atmos_model.res', 'write')
+      call mpp_open  (unit, 'RESTART/file' )
       call mpp_close (unit, action=MPP_DELETE)
-
 
 !  ---- terminate timing ----
    call mpp_clock_end (id_init)
@@ -277,8 +276,10 @@ contains
 !----- write restart file ------
 
       if ( mpp_pe() == mpp_root_pe() ) then
-           unit = open_restart_file ('RESTART/atmos_model.res',  'write')
-           write (unit) date
+           call mpp_open (unit, 'RESTART/atmos_model.res', form=MPP_ASCII, action=MPP_OVERWR, &
+                          access=MPP_SEQUENTIAL, threading=MPP_SINGLE, nohdrs=.true. )
+           write (unit,'(6i6,8x,a)') date, &
+                 'Current model time: year, month, day, hour, minute, second'
            call mpp_close (unit)
       endif
 

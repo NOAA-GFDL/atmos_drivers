@@ -27,7 +27,9 @@ use mpp_domains_mod,  only: domain2d
 use          fms_mod, only:  file_exist, open_restart_file, error_mesg,  &
                              FATAL, close_file, mpp_pe, mpp_root_pe,     &
                              write_version_number, stdlog,               &
-                             read_data, write_data
+                             read_data, write_data, &
+                             mpp_clock_id, mpp_clock_begin, mpp_clock_end, &
+                             clock_flag_default, CLOCK_COMPONENT
 
 use  diag_integral_mod, only: diag_integral_init, diag_integral_end, &
                               diag_integral_output
@@ -48,15 +50,26 @@ public  update_atmos_model_down, update_atmos_model_up,   &
  type atmos_data_type
      type (domain2d)               :: domain
      integer                       :: axes(4)
-     real, pointer, dimension(:)   :: glon_bnd, glat_bnd,  &
-                                       lon_bnd,  lat_bnd
-     real, pointer, dimension(:,:) :: t_bot, q_bot, z_bot, p_bot,  &
-                                      u_bot, v_bot, p_surf, gust,  &
-                                      coszen, flux_sw, flux_lw,    &
-                                      lprec, fprec
+     real, pointer, dimension(:)   :: glon_bnd =>NULL(), &
+                                      glat_bnd =>NULL(), &
+                                       lon_bnd =>NULL(), &
+                                       lat_bnd =>NULL()
+     real, pointer, dimension(:,:) :: t_bot =>NULL(), &
+                                      q_bot =>NULL(), &
+                                      z_bot =>NULL(), &
+                                      p_bot =>NULL(), &
+                                      u_bot =>NULL(), &
+                                      v_bot =>NULL(), &
+                                      p_surf =>NULL(), &
+                                      gust  =>NULL(),  &
+                                      coszen =>NULL(), &
+                                      flux_sw =>NULL(), &
+                                      flux_lw =>NULL(), &
+                                      lprec =>NULL(),   &
+                                      fprec =>NULL()
      type (surf_diff_type)         :: Surf_diff
      type (time_type)              :: Time, Time_step, Time_init
-     integer, pointer              :: pelist(:)
+     integer, pointer              :: pelist(:) =>NULL()
      logical                       :: pe
  end type
 
@@ -75,27 +88,37 @@ type, public :: land_ice_atmos_boundary_type
 !       b_star    = bouyancy scale
 !       q_star    = moisture scale
 !       rough_mom = surface roughness (used for momentum
-   real, dimension(:,:), pointer :: t, albedo, land_frac
-   real, dimension(:,:), pointer :: dt_t, dt_q
-   real, dimension(:,:), pointer :: u_flux, v_flux, dtaudv, u_star, b_star, q_star, rough_mom
-   real, dimension(:,:,:), pointer :: data !collective field for "named" fields above
+   real, dimension(:,:), pointer :: t =>NULL(), &
+                                    albedo =>NULL(), &
+                                    land_frac =>NULL()
+   real, dimension(:,:), pointer :: dt_t =>NULL(), &
+                                    dt_q =>NULL()
+   real, dimension(:,:), pointer :: u_flux =>NULL(), &
+                                    v_flux =>NULL(), &
+                                    dtaudv =>NULL(), &
+                                    u_star =>NULL(), &
+                                    b_star =>NULL(), &
+                                    q_star =>NULL(), &
+                                    rough_mom =>NULL()
+   real, dimension(:,:,:), pointer :: data =>NULL() !collective field for "named" fields above
    integer :: xtype             !REGRID, REDIST or DIRECT
 end type land_ice_atmos_boundary_type
 !quantities going from land alone to atmos (none at present)
 type, public :: land_atmos_boundary_type
 !   private
-   real, dimension(:,:), pointer :: data
+   real, dimension(:,:), pointer :: data =>NULL()
 end type land_atmos_boundary_type
 !quantities going from ice alone to atmos (none at present)
 type, public :: ice_atmos_boundary_type
 !   private
-   real, dimension(:,:), pointer :: data
+   real, dimension(:,:), pointer :: data =>NULL()
 end type ice_atmos_boundary_type
-
+!Balaji
+integer, private :: atmClock
 !-----------------------------------------------------------------------
 
-character(len=256) :: version = '$Id: atmos_model.F90,v 1.3 2003/04/09 20:52:48 fms Exp $'
-character(len=256) :: tag = '$Name: inchon $'
+character(len=256) :: version = '$Id: atmos_model.F90,v 10.0 2003/10/24 22:00:21 fms Exp $'
+character(len=256) :: tag = '$Name: jakarta $'
 
 character(len=80) :: restart_format = 'atmos_coupled_mod restart format 01'
 
@@ -114,15 +137,16 @@ subroutine update_atmos_model_down( Surface_boundary, Atmos )
 !
 !-----------------------------------------------------------------------
 
-type(land_ice_atmos_boundary_type), intent(inout) :: Surface_boundary
-type (atmos_data_type), intent(inout) :: Atmos
+  type(land_ice_atmos_boundary_type), intent(inout) :: Surface_boundary
+  type (atmos_data_type), intent(inout) :: Atmos
                                       
 !-----------------------------------------------------------------------
+  call mpp_clock_begin(atmClock)
 
     call atmosphere_down (Atmos%Time, Surface_boundary%land_frac,        &
                           Surface_boundary%t,  Surface_boundary%albedo, Surface_boundary%rough_mom,   &
                           Surface_boundary%u_star,  Surface_boundary%b_star,              &
-			  Surface_boundary%q_star, &
+                          Surface_boundary%q_star, &
                           Surface_boundary%dtaudv, Surface_boundary%u_flux,  Surface_boundary%v_flux,       &
                           Atmos%gust, Atmos%coszen,     &
                           Atmos%flux_sw, Atmos%flux_lw, &
@@ -130,6 +154,7 @@ type (atmos_data_type), intent(inout) :: Atmos
 
 !-----------------------------------------------------------------------
 
+  call mpp_clock_end(atmClock)
  end subroutine update_atmos_model_down
 
 !#######################################################################
@@ -147,13 +172,14 @@ type(land_ice_atmos_boundary_type), intent(in) :: Surface_boundary
 type (atmos_data_type), intent(inout) :: Atmos
                                       
 !-----------------------------------------------------------------------
+  call mpp_clock_begin(atmClock)
 
 
     Atmos%Surf_diff%delta_t = Surface_boundary%dt_t
     Atmos%Surf_diff%delta_q = Surface_boundary%dt_q
 
     call atmosphere_up (Atmos%Time,  Surface_boundary%land_frac, Atmos%Surf_diff, &
-                        Atmos%lprec, Atmos%fprec)
+                        Atmos%lprec, Atmos%fprec, Atmos%gust)
 
 !   --- advance time ---
 
@@ -172,6 +198,7 @@ type (atmos_data_type), intent(inout) :: Atmos
     call diag_integral_output (Atmos % Time)
 
 !-----------------------------------------------------------------------
+  call mpp_clock_end(atmClock)
 
 end subroutine update_atmos_model_up
 
@@ -300,7 +327,7 @@ type (time_type), intent(in) :: Time_init, Time, Time_step
                              Atmos % lon_bnd,   Atmos % lat_bnd)
 
 !-----------------------------------------------------------------------
-
+atmClock = mpp_clock_id( 'Atmosphere', flags=clock_flag_default, grain=CLOCK_COMPONENT )
 end subroutine atmos_model_init
 
 !#######################################################################
