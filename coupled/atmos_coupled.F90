@@ -15,11 +15,14 @@ use atmosphere_mod, only:  atmosphere_up,         &
                            get_bottom_mass,       &
                            get_bottom_wind,       &
                            atmosphere_resolution, &
+                           atmosphere_domain,     &
                            atmosphere_boundary,   &
                            get_atmosphere_axes,   &
                            surf_diff_type
 
 use time_manager_mod, only:  time_type, operator(+), get_time
+
+use mpp_domains_mod,  only: domain2d
 
 use    utilities_mod, only:  file_exist, open_file, check_nml_error,  &
                              error_mesg, close_file, get_my_pe,       &
@@ -27,6 +30,7 @@ use    utilities_mod, only:  file_exist, open_file, check_nml_error,  &
 
 use  diag_integral_mod, only: diag_integral_init, diag_integral_end, &
                               diag_integral_output
+
 
 !-----------------------------------------------------------------------
 
@@ -39,6 +43,7 @@ public  update_atmos_coupled_down, update_atmos_coupled_up,   &
 !-----------------------------------------------------------------------
 
  type atmos_boundary_data_type
+     type (domain2d)               :: domain
      integer                       :: axes(4)
      real, pointer, dimension(:)   :: glon_bnd, glat_bnd,  &
                                        lon_bnd,  lat_bnd
@@ -52,8 +57,8 @@ public  update_atmos_coupled_down, update_atmos_coupled_up,   &
 
 !-----------------------------------------------------------------------
 
-character(len=256) :: version = '$Id: atmos_coupled.F90,v 1.5 2001/07/05 17:43:44 fms Exp $'
-character(len=256) :: tag = '$Name: eugene $'
+character(len=256) :: version = '$Id: atmos_coupled.F90,v 1.6 2001/10/25 17:47:33 fms Exp $'
+character(len=256) :: tag = '$Name: fez $'
 
 character(len=80) :: restart_format = 'atmos_coupled_mod restart format 01'
 
@@ -183,6 +188,7 @@ type (time_type), intent(in) :: Time_init, Time, Time_step
 
     call atmosphere_resolution (mlon, mlat, global=.true.)
     call atmosphere_resolution (nlon, nlat, global=.false.)
+    call atmosphere_domain     (Atmos%domain)
 
     allocate ( Atmos % glon_bnd (mlon+1),    &
                Atmos % glat_bnd (mlat+1),    &
