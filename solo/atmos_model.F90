@@ -16,7 +16,9 @@ use time_manager_mod, only: time_type, set_time, get_time,  &
 use    utilities_mod, only: open_file, file_exist, check_nml_error,   &
                             error_mesg, FATAL, WARNING,               &
                             get_my_pe, utilities_init, utilities_end, &
-                            close_file, check_system_clock
+                            close_file, check_system_clock,           &
+                            mpp_clock_init, mpp_clock_begin,          &
+                            mpp_clock_end
 
 use diag_manager_mod, only: diag_manager_init, diag_manager_end, get_base_date
 
@@ -26,20 +28,25 @@ implicit none
 !-----------------------------------------------------------------------
 
 character(len=128), parameter :: version = &
-'$Id: atmos_model.F90,v 1.2 2000/11/22 14:33:22 fms Exp $'
+'$Id: atmos_model.F90,v 1.3 2001/03/06 18:49:12 fms Exp $'
 
 character(len=128), parameter :: tag = &
-'$Name: calgary $'
+'$Name: damascus $'
 
 !-----------------------------------------------------------------------
-! ----- coupled model time -----
+! ----- model time -----
 
-   type (time_type) :: Time, Time_end, Time_step_atmos
+   type (time_type) :: Time, Time_init, Time_end, Time_step_atmos
    integer :: num_atmos_calls, na
 
 ! ----- coupled model initial date -----
 
    integer :: date_init(6)
+
+! ----- timing flags -----
+
+   integer :: id_init, id_loop, id_end
+   integer, parameter :: timing_level = 1
 
 !-----------------------------------------------------------------------
 
@@ -58,23 +65,24 @@ character(len=128), parameter :: tag = &
  call atmos_model_init 
 
  call check_system_clock ('END OF INITIALIZATION')
-!
+ call mpp_clock_begin (id_loop)
+
 !   ------ atmosphere integration loop -------
 
     do na = 1, num_atmos_calls
 
-       Time = Time + Time_step_atmos
-
        call atmosphere (Time)
+
+       Time = Time + Time_step_atmos
 
     enddo
 
 !   ------ end of atmospheric time step loop -----
 
+ call mpp_clock_end (id_loop)
  call check_system_clock ('END OF TIME LOOP')
 
  call atmos_model_end
- call diag_manager_end (Time)
  call utilities_end
 
  stop
@@ -91,6 +99,14 @@ contains
     type (time_type) :: Run_length
     logical :: use_namelist
 !-----------------------------------------------------------------------
+!----- initialization timing identifiers ----
+
+ id_init = mpp_clock_init ('atmos_model', 'atmos_model_init', timing_level)
+ id_loop = mpp_clock_init ('atmos_model', 'time_loop'       , timing_level)
+ id_end  = mpp_clock_init ('atmos_model', 'atmos_model_end' , timing_level)
+
+ call mpp_clock_begin (id_init)
+
 !----- read namelist -------
 
    unit = open_file ('input.nml', action='read')
@@ -104,7 +120,7 @@ contains
 
    log_unit = open_file ('logfile.out', action='append')
    if ( get_my_pe() == 0 ) then
-     write (log_unit,'(/(a))') trim(version), trim(tag)
+     write (log_unit,'(/,80("="),/(a))') trim(version), trim(tag)
      write (log_unit, nml=main_nml)
    endif
 
@@ -157,6 +173,9 @@ contains
 
 !----- set initial and current time types ------
 
+    total_seconds = date_init(4)*3600 + date_init(5)*60 + date_init(6)
+    Time_init = set_time ( total_seconds, date_init(3) )
+
     total_seconds = date(4)*3600 + date(5)*60 + date(6)
     Time      = set_time ( total_seconds, date(3) )
 
@@ -192,6 +211,11 @@ contains
       num_atmos_calls = Run_length / Time_step_atmos
 
 !-----------------------------------------------------------------------
+!----- initial (base) time must not be greater than current time -----
+
+   if ( Time_init > Time ) call error_mesg ('program atmos_model',  &
+                   'initial time is greater than current time', FATAL)
+
 !----- make sure run length is a multiple of atmos time step ------
 
    if ( num_atmos_calls * Time_step_atmos /= Run_length )  &
@@ -201,7 +225,7 @@ contains
 !-----------------------------------------------------------------------
 !------ initialize atmospheric model ------
 
-      call atmosphere_init (Time, Time_step_atmos)
+      call atmosphere_init (Time_init, Time, Time_step_atmos)
 
 !-----------------------------------------------------------------------
 !---- open and close output restart to make sure directory is there ----
@@ -209,6 +233,10 @@ contains
       unit = open_file ('RESTART/atmos_model.res',  &
                         form='native', action='write')
       call close_file (unit, status='delete')
+
+
+!  ---- terminate timing ----
+   call mpp_clock_end (id_init)
 
 !-----------------------------------------------------------------------
 
@@ -220,6 +248,7 @@ contains
 
    integer :: unit, date(6)
 !-----------------------------------------------------------------------
+   call mpp_clock_begin (id_end)
 
       call atmosphere_end
 
@@ -237,13 +266,19 @@ contains
 
 !----- write restart file ------
 
-      if ( get_my_pe() /= 0 ) return
+      if ( get_my_pe() == 0 ) then
+           unit = open_file ('RESTART/atmos_model.res',  &
+                             form='native', action='write')
+           write (unit) date
+           call close_file (unit)
+      endif
 
-      unit = open_file ('RESTART/atmos_model.res',  &
-                        form='native', action='write')
-      write (unit) date
-      call close_file (unit)
+!----- final output of diagnostic fields ----
 
+      call diag_manager_end (Time)
+
+
+      call mpp_clock_end (id_end)
 !-----------------------------------------------------------------------
 
    end subroutine atmos_model_end

@@ -53,7 +53,7 @@ public  update_atmos_coupled_down, update_atmos_coupled_up,   &
 !-----------------------------------------------------------------------
 
 character(len=256) :: version = '$Id: atmos_coupled.F90,v 1.3 2000/11/22 14:33:18 fms Exp $'
-character(len=256) :: tag = '$Name: calgary $'
+character(len=256) :: tag = '$Name: damascus $'
 
 !-----------------------------------------------------------------------
 
