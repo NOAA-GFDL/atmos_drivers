@@ -35,8 +35,10 @@
 <A NAME="DESCRIPTION">
 <!-- BEGIN DESCRIPTION -->
 <PRE>
-     This version is suitable for running a dry dynamical core (Held-Suarez
-     benchmark, aka simple_physics) and shallow water models.
+     This version calls only a very simple atmospheric model interface.
+     It may be used as a main program for several stand-alone atmospheric
+     models, such as a dry dynamical core with Held-Suarez forcing or
+     with shallow water models.
 
 </A><!-- END DESCRIPTION -->
 <!--------------------------------------------------------------------->
@@ -48,8 +50,9 @@
 
        atmosphere_mod
      time_manager_mod
-     diag_manager_mod
               fms_mod
+           mpp_io_mod
+     diag_manager_mod
     field_manager_mod
    tracer_manager_mod
 
@@ -81,13 +84,6 @@
   current_time  The time (day,hour,minute,second) that the current
                 integration starts with.
                   [integer, dimension(4), default: current_time=0]
-
-  override      Flag that determines whether the namelist variable
-                current_time should override the time in the
-                restart file INPUT/atmos_model.res. If the restart file
-                does not exist then override has not effect, the
-                value of current_date will be used.
-                  [logical, default: override=false]
 
   days          The number of days that the current integration will
                 be run for.   [integer, default: days=0]
@@ -127,9 +123,12 @@
 
 <b>FATAL ERRORS in program atmos_model</b>
 
+    <b>ntfamily > 0</b>
+        Tracer families are not allowed. Check your field_table.
+
     <b>dt_atmos has not been specified</b>
         A value must be specified for variable "dt_atmos" in
-        namelist &main_nml. See the namelist documentation for details.
+        namelist &amp;main_nml. See the namelist documentation for details.
 
     <b>invalid base date - must have year = month = 0</b>
         There is no calendar associated with this model.

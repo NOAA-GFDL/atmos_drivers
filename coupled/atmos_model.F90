@@ -60,12 +60,24 @@ public  update_atmos_model_down, update_atmos_model_up,   &
      logical                       :: pe
  end type
 
-!quantities going from land+ice to atmos
 type, public :: land_ice_atmos_boundary_type
-!defined here but declared by coupler_main, allocated by flux_exchange_init
+!variables of this type are declared by coupler_main, allocated by flux_exchange_init
+!quantities going from land+ice to atmos
+!       t         = surface temperature for radiation calculations
+!       albedo    = surface albedo for radiation calculations
+!       land_frac = fraction amount of land in a grid box
+!       dt_t      = temperature tendency at the lowest level
+!       dt_q      = specific humidity tendency at the lowest level
+!       u_flux    = zonal wind stress
+!       v_flux    = meridional wind stress
+!       dtaudv    = derivative of wind stress w.r.t. the lowest level wind speed
+!       u_star    = friction velocity
+!       b_star    = bouyancy scale
+!       q_star    = moisture scale
+!       rough_mom = surface roughness (used for momentum
    real, dimension(:,:), pointer :: t, albedo, land_frac
    real, dimension(:,:), pointer :: dt_t, dt_q
-   real, dimension(:,:), pointer :: u_flux, v_flux, dtaudv, u_star, b_star, rough_mom
+   real, dimension(:,:), pointer :: u_flux, v_flux, dtaudv, u_star, b_star, q_star, rough_mom
    real, dimension(:,:,:), pointer :: data !collective field for "named" fields above
    integer :: xtype             !REGRID, REDIST or DIRECT
 end type land_ice_atmos_boundary_type
@@ -82,8 +94,8 @@ end type ice_atmos_boundary_type
 
 !-----------------------------------------------------------------------
 
-character(len=256) :: version = '$Id: atmos_model.F90,v 1.2 2002/07/16 22:31:10 fms Exp $'
-character(len=256) :: tag = '$Name: havana $'
+character(len=256) :: version = '$Id: atmos_model.F90,v 1.3 2003/04/09 20:52:48 fms Exp $'
+character(len=256) :: tag = '$Name: inchon $'
 
 character(len=80) :: restart_format = 'atmos_coupled_mod restart format 01'
 
@@ -95,39 +107,22 @@ contains
 !#######################################################################
 
 subroutine update_atmos_model_down( Surface_boundary, Atmos )
-!Balaji: this routine is now a driver for any atmosphere
-!this comment only applies to the current atmosphere.f90 and should be moved there
 !-----------------------------------------------------------------------
 !                       atmospheric driver
 !    performs radiation, damping, and vertical diffusion of momentum,
 !    tracers, and downward heat/moisture
 !
-!   in:  t_surf    = surface temperature for radiation calculations
-!        albedo    = surface albedo for radiation calculations
-!        rough_mom = surface roughness (used for momentum
-!        u_star    = friction velocity
-!        b_star    = bouyancy scale
-!        land_frac = fraction amount of land in a grid box
-!        dtau_dv   = derivative of wind stress w.r.t. the 
-!                    lowest level wind speed
-!
-! inout: tau_x     = zonal wind stress
-!        tau_y     = meridional wind stress
-!
 !-----------------------------------------------------------------------
 
-  type(land_ice_atmos_boundary_type), intent(inout) :: Surface_boundary
+type(land_ice_atmos_boundary_type), intent(inout) :: Surface_boundary
 type (atmos_data_type), intent(inout) :: Atmos
-!real,  dimension(:,:),  intent(in)    :: t_surf, albedo, rough_mom, &
-!                                         u_star, b_star, land_frac, &
-!                                         dtau_dv
-!real,  dimension(:,:),  intent(inout) :: tau_x,  tau_y
                                       
 !-----------------------------------------------------------------------
 
     call atmosphere_down (Atmos%Time, Surface_boundary%land_frac,        &
                           Surface_boundary%t,  Surface_boundary%albedo, Surface_boundary%rough_mom,   &
                           Surface_boundary%u_star,  Surface_boundary%b_star,              &
+			  Surface_boundary%q_star, &
                           Surface_boundary%dtaudv, Surface_boundary%u_flux,  Surface_boundary%v_flux,       &
                           Atmos%gust, Atmos%coszen,     &
                           Atmos%flux_sw, Atmos%flux_lw, &
@@ -146,15 +141,10 @@ type (atmos_data_type), intent(inout) :: Atmos
 !    performs upward vertical diffusion of heat/moisture and
 !    moisture processes
 !
-!   in: land_frac = fraction amount of land in a grid box
-!       dt_t_bot  = temperature tendency at the lowest level
-!       dt_q_bot  = specific humidity tendency at the lowest level
-!
 !-----------------------------------------------------------------------
 
-  type(land_ice_atmos_boundary_type), intent(in) :: Surface_boundary
+type(land_ice_atmos_boundary_type), intent(in) :: Surface_boundary
 type (atmos_data_type), intent(inout) :: Atmos
-!real,  dimension(:,:),  intent(in)    :: land_frac, dt_t_bot, dt_q_bot
                                       
 !-----------------------------------------------------------------------
 

@@ -3,7 +3,7 @@ program atmos_model
 
 !-----------------------------------------------------------------------
 !
-!
+!  Main program for running a stand-alone atmospheric dynamical core.
 !
 !-----------------------------------------------------------------------
 
@@ -18,8 +18,10 @@ use          fms_mod, only: file_exist, check_nml_error,                &
                             mpp_pe, mpp_root_pe, fms_init, fms_end,     &
                             stdlog, write_version_number,               &
                             open_namelist_file, open_restart_file,      &
-                            mpp_clock_init, mpp_clock_begin,            &
-                            mpp_clock_end, MPP_CLOCK_SYNC
+                            mpp_clock_id, mpp_clock_begin,              &
+                            mpp_clock_end, CLOCK_COMPONENT
+
+use    constants_mod, only: constants_init
 
 use       mpp_io_mod, only: mpp_open, mpp_close, MPP_ASCII, MPP_OVERWR, &
                             MPP_SEQUENTIAL, MPP_SINGLE, MPP_DELETE
@@ -29,26 +31,27 @@ use diag_manager_mod, only: diag_manager_init, diag_manager_end, get_base_date
 use  field_manager_mod, only: MODEL_ATMOS
 use tracer_manager_mod, only: register_tracers
 
-
 implicit none
 
 !-----------------------------------------------------------------------
 
 character(len=128), parameter :: version = &
-'$Id: atmos_model.F90,v 1.6 2002/07/16 22:31:19 fms Exp $'
+'$Id: atmos_model.F90,v 1.7 2003/04/09 20:52:53 fms Exp $'
 
 character(len=128), parameter :: tag = &
-'$Name: havana $'
+'$Name: inchon $'
 
 !-----------------------------------------------------------------------
-! ----- model time -----
+!       ----- model time -----
+! there is no calendar associated with model of this type
+! therfore, year=0, month=0 are assumed
 
    type (time_type) :: Time, Time_init, Time_end, Time_step_atmos
    integer :: num_atmos_calls, na
 
-! ----- coupled model initial date -----
+! ----- model initial date -----
 
-   integer :: date_init(6)
+   integer :: date_init(6) ! note: year=month=0
 
 ! ----- timing flags -----
 
@@ -58,16 +61,16 @@ character(len=128), parameter :: tag = &
 !-----------------------------------------------------------------------
 
       integer, dimension(4) :: current_time = (/ 0, 0, 0, 0 /)
-      logical :: override = .false.  ! override restart values for date
       integer :: days=0, hours=0, minutes=0, seconds=0
       integer :: dt_atmos = 0
 
-      namelist /main_nml/ current_time, override, dt_atmos, &
+      namelist /main_nml/ current_time, dt_atmos,  &
                           days, hours, minutes, seconds
 
 !#######################################################################
 
  call fms_init ( )
+ call constants_init 
  call atmos_model_init 
 
 !   ------ atmosphere integration loop -------
@@ -100,13 +103,12 @@ contains
     integer :: ntrace, ntprog, ntdiag, ntfamily
     integer :: date(6)
     type (time_type) :: Run_length
-    logical :: use_namelist
 !-----------------------------------------------------------------------
 !----- initialization timing identifiers ----
 
- id_init = mpp_clock_init ('MAIN: initialization', timing_level, flags=MPP_CLOCK_SYNC)
- id_loop = mpp_clock_init ('MAIN: time loop'     , timing_level, flags=MPP_CLOCK_SYNC)
- id_end  = mpp_clock_init ('MAIN: termination'   , timing_level, flags=MPP_CLOCK_SYNC)
+ id_init = mpp_clock_id ('MAIN: initialization', grain=CLOCK_COMPONENT)
+ id_loop = mpp_clock_id ('MAIN: time loop'     , grain=CLOCK_COMPONENT)
+ id_end  = mpp_clock_id ('MAIN: termination'   , grain=CLOCK_COMPONENT)
 
  call mpp_clock_begin (id_init)
 
@@ -131,7 +133,7 @@ contains
    call write_version_number (version,tag)
    if ( mpp_pe() == mpp_root_pe() ) write (stdlog(), nml=main_nml)
 
-   if(dt_atmos == 0) then
+   if (dt_atmos == 0) then
      call error_mesg ('program atmos_model', 'dt_atmos has not been specified', FATAL)
    endif
 
@@ -141,18 +143,11 @@ contains
        unit = open_restart_file ('INPUT/atmos_model.res', 'read')
        read  (unit) date
        call mpp_close (unit)
-       use_namelist = .false.
    else
-       use_namelist = .true.
-   endif
-
-!----- override date with namelist values ------
-!----- (either no restart or override flag on) ---
-
- if ( use_namelist .or. override ) then
+    ! use namelist time if restart file does not exist
       date(1:2) = 0
       date(3:6) = current_time
- endif
+   endif
 
 !----- write current/initial date actually used to logfile file -----
 
@@ -176,9 +171,14 @@ contains
 
 !----- always override initial/base date with diag_manager value -----
 
+!----- get the base date in the diag_table from the diag_manager ----
+!      this base date is typically the starting date for the
+!      experiment and is subtracted from the current date
+
     call get_base_date ( date_init(1), date_init(2), date_init(3), &
                          date_init(4), date_init(5), date_init(6)  )
 
+  ! make sure base date does not have a year or month specified
     if ( date_init(1)+date_init(2) /= 0 ) then
          call error_mesg ('program atmos_model', 'invalid base base - &
                           &must have year = month = 0', FATAL)
@@ -187,9 +187,9 @@ contains
 !----- set initial and current time types ------
 !----- set run length and compute ending time -----
 
-    Time_init  = set_time_increment (date_init(3), date_init(4), date_init(5), date_init(6))
-    Time       = set_time_increment (date     (3), date     (4), date     (5), date     (6))
-    Run_length = set_time_increment (days        , hours       , minutes     , seconds     )
+    Time_init  = set_time (date_init(4)*3600 + date_init(5)*60 + date_init(6), date_init(3))
+    Time       = set_time (date     (4)*3600 + date     (5)*60 + date     (6), date     (3))
+    Run_length = set_time (       hours*3600 +      minutes*60 +      seconds, days        )
     Time_end   = Time + Run_length
 
 !-----------------------------------------------------------------------
@@ -201,7 +201,9 @@ contains
       if ( mpp_pe() == mpp_root_pe() ) write (unit,20) date
 
 !     compute ending time in days,hours,minutes,seconds
-      call get_time_increment (Time_end, date(3), date(4), date(5), date(6))
+      call get_time ( Time_end, date(6), date(3) )  ! gets sec,days
+      date(4) = date(6)/3600; date(6) = date(6) - date(4)*3600
+      date(5) = date(6)/60  ; date(6) = date(6) - date(5)*60
 
       if ( mpp_pe() == mpp_root_pe() ) write (unit,20) date
 
@@ -210,8 +212,9 @@ contains
   20  format (6i7,2x,'day')   ! can handle day <= 999999
 
 !-----------------------------------------------------------------------
-!----- compute the time steps ------
-!----- determine maximum number of iterations per loop ------
+!--- compute the time steps ---
+!    determine number of iterations through the time integration loop 
+!    must be evenly divisible
 
       Time_step_atmos = set_time (dt_atmos,0)
       num_atmos_calls = Run_length / Time_step_atmos
@@ -234,7 +237,9 @@ contains
       call atmosphere_init (Time_init, Time, Time_step_atmos)
 
 !-----------------------------------------------------------------------
-!---- open and close output restart to make sure directory is there ----
+!   open and close output restart file to make sure the
+!   restart directory exists, it is better to fail now rather
+!   than after the model has completed a full integration
 
       unit = open_restart_file ('RESTART/atmos_model.res', 'write')
       call mpp_close (unit, action=MPP_DELETE)
@@ -289,33 +294,6 @@ contains
 
 !#######################################################################
 ! routines to set/get date when no calendar is set (i.e., yr=0 and mo=0)
-!#######################################################################
-! return the time increment for the given
-! number of days, hours, minutes, and seconds
-
- function Set_time_increment ( d, h, m, s )
- integer, intent(in) :: d, h, m, s
- type(time_type) :: Set_time_increment
-
-   Set_time_increment = set_time ( h*3600+m*60+s, d )
-
- end function Set_time_increment
-
-!#######################################################################
-! compute time in days, hours, minutes, seconds ----
-
- subroutine get_time_increment ( T, d, h, m, s )
- type(time_type), intent(in)  :: T
- integer,         intent(out) :: d, h, m, s
-
-   call get_time ( T, s, d )
-
- ! compute hours and minutes
-   h = h/3600 ;   s = s - h*3600
-   m = s/60   ;   s = s - m*60
-
- end subroutine get_time_increment
-
 !#######################################################################
 
 end program atmos_model
