@@ -246,16 +246,20 @@ in: Atmos     = atmos_boundary_data_type
      This module automatically writes restart data to file
      "RESTART/atmos_coupled.res" containing the following records:
 
-               1) liquid precipitation mass (in kg/m2)
-               2) frozen precipitation mass (in kg/m2)
-               3) gustiness (in m/s)
+               1) 80 character control record
+               2) grid resolution (nlon,nlat) and
+                  previous integer time step (record contains 3 integers)
+               3) liquid precipitation rate (in kg/m2/s)
+               4) frozen precipitation rate (in kg/m2/s)
+               5) gustiness (in m/s)
 
      The input restart file is read from "INPUT/atmos_coupled.res",
      if is does not exist the model will restart with the following
-     values:  precipitation mass = 0. and gustiness = 1.
+     values:  precipitation rate = 0. and gustiness = 1.
 
-     Note that precipitation is written/read as the mass suspended
-     above the ground. The time step is used to compute the rate.
+     If the current time step does not equal the previous time step
+     (on record 2) then the precipitation rates are adjusted to
+     conserve precipitation mass.
 
 </PRE>
 </A><!-- END DATA_SETS -->

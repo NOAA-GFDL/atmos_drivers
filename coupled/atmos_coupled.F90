@@ -23,7 +23,7 @@ use time_manager_mod, only:  time_type, operator(+), get_time
 
 use    utilities_mod, only:  file_exist, open_file, check_nml_error,  &
                              error_mesg, close_file, get_my_pe,       &
-                             read_data, write_data
+                             read_data, write_data, FATAL
 
 use  diag_integral_mod, only: diag_integral_init, diag_integral_end, &
                               diag_integral_output
@@ -52,8 +52,10 @@ public  update_atmos_coupled_down, update_atmos_coupled_up,   &
 
 !-----------------------------------------------------------------------
 
-character(len=256) :: version = '$Id: atmos_coupled.F90,v 1.3 2000/11/22 14:33:18 fms Exp $'
-character(len=256) :: tag = '$Name: damascus $'
+character(len=256) :: version = '$Id: atmos_coupled.F90,v 1.5 2001/07/05 17:43:44 fms Exp $'
+character(len=256) :: tag = '$Name: eugene $'
+
+character(len=80) :: restart_format = 'atmos_coupled_mod restart format 01'
 
 !-----------------------------------------------------------------------
 
@@ -125,8 +127,9 @@ real,  dimension(:,:),  intent(in)    :: frac_land, dt_t_bot, dt_q_bot
                                       
 !-----------------------------------------------------------------------
 
-    Atmos%Surf_diff%delta_t_n = dt_t_bot
-    Atmos%Surf_diff%delta_q_n = dt_q_bot
+
+    Atmos%Surf_diff%delta_t = dt_t_bot
+    Atmos%Surf_diff%delta_q = dt_q_bot
 
     call atmosphere_up (Atmos%Time,  frac_land, Atmos%Surf_diff, &
                         Atmos%lprec, Atmos%fprec)
@@ -158,15 +161,10 @@ subroutine atmos_coupled_init (Atmos, Time_init, Time, Time_step)
 type (atmos_boundary_data_type), intent(inout) :: Atmos
 type (time_type), intent(in) :: Time_init, Time, Time_step
 
-  integer :: unit, mlon, mlat, nlon, nlat, sec, day
-  real    :: dt
+  integer :: unit, log_unit
+  integer :: mlon, mlat, nlon, nlat, sec, day, ipts, jpts, dt, dto
+  character(len=80) :: control
 !-----------------------------------------------------------------------
-!---- print version number to logfile ----
-
-   unit = open_file ('logfile.out', action='append')
-   if (get_my_pe() == 0) &
-       write (unit,'(/,80("="),/(a))') trim(version), trim(tag)
-   call close_file (unit)
 
 !---- set the atmospheric model time ------
 
@@ -220,27 +218,53 @@ type (time_type), intent(in) :: Time_init, Time, Time_step
 
     call get_bottom_wind (Atmos % u_bot, Atmos % v_bot)
 
+!-----------------------------------------------------------------------
+!---- print version number to logfile ----
+
+   log_unit = open_file ('logfile.out', action='append')
+   if (get_my_pe() == 0) &
+       write (log_unit,'(/,80("="),/(a))') trim(version), trim(tag)
+
 !------ read initial state for several atmospheric fields ------
 
     if (file_exist('INPUT/atmos_coupled.res')) then
         unit = open_file ('INPUT/atmos_coupled.res',  &
                           form='native', action='read')
+       !--- check version number (format) of restart file ---
+        read  (unit) control
+        if (trim(control) /= trim(restart_format)) call error_mesg &
+             ('coupled_atmos_init', 'invalid restart format', FATAL)
+       !--- check resolution and time step ---
+        read  (unit) ipts,jpts,dto
+        if (ipts /= mlon .or. jpts /= mlat) call error_mesg &
+        ('coupled_atmos_init', 'incorrect resolution on restart file', FATAL)
+       !--- read data ---
         call read_data ( unit, Atmos % lprec )
         call read_data ( unit, Atmos % fprec )
         call read_data ( unit, Atmos % gust  )
         call close_file (unit)
 
-!       ---- convert precip mass to precip rate ----
+       !---- if the time step has changed then convert ----
+       !        tendency to conserve mass of water
         call get_time (Atmos % Time_step, sec, day)
-        dt = float(sec + 86400*day)
-        Atmos % lprec = Atmos % lprec / dt
-        Atmos % fprec = Atmos % fprec / dt
+        dt = sec + 86400*day  ! integer seconds
+        if (dto /= dt) then
+            Atmos % lprec = Atmos % lprec * real(dto)/real(dt)
+            Atmos % fprec = Atmos % fprec * real(dto)/real(dt)
+            if (get_my_pe() == 0) write (log_unit,50)
+ 50         format (/,'The model time step changed .... &
+                      &modifying precipitation tendencies')
+        endif
 
     else
         Atmos % lprec = 0.0
         Atmos % fprec = 0.0
         Atmos % gust  = 1.0
     endif
+
+!------ close log file unit -----
+
+   call close_file (log_unit)
 
 !------ initialize global integral package ------
 
@@ -256,8 +280,7 @@ end subroutine atmos_coupled_init
 subroutine atmos_coupled_end (Atmos)
 
 type (atmos_boundary_data_type), intent(in) :: Atmos
-integer :: unit, sec, day
-real    :: dt
+integer :: unit, sec, day, dt
 
 !-----------------------------------------------------------------------
 !---- termination routine for atmospheric model ----
@@ -268,18 +291,22 @@ real    :: dt
 
   call diag_integral_end (Atmos % Time)
 
-!---- compute real time step ----
+!---- compute integer time step (in seconds) ----
   call get_time (Atmos % Time_step, sec, day)
-  dt = float(sec + 86400*day)
+  dt = sec + 86400*day
 
 !------ write several atmospheric fields ------
-!     (convert precip rate to precip mass)
+!        also resolution and time step
 
   unit = open_file ('RESTART/atmos_coupled.res',   &
                     form='native', action='write')
-  call write_data ( unit, Atmos % lprec * dt )
-  call write_data ( unit, Atmos % fprec * dt )
-  call write_data ( unit, Atmos % gust       )
+  if (get_my_pe() == 0) then
+      write (unit) restart_format
+      write (unit) size(Atmos%glon_bnd)-1, size(Atmos%glat_bnd)-1, dt
+  endif
+  call write_data ( unit, Atmos % lprec )
+  call write_data ( unit, Atmos % fprec )
+  call write_data ( unit, Atmos % gust  )
   call close_file (unit)
 
 !-------- deallocate space --------

@@ -28,10 +28,10 @@ implicit none
 !-----------------------------------------------------------------------
 
 character(len=128), parameter :: version = &
-'$Id: atmos_model.F90,v 1.3 2001/03/06 18:49:12 fms Exp $'
+'$Id: atmos_model.F90,v 1.4 2001/04/13 15:31:11 fms Exp $'
 
 character(len=128), parameter :: tag = &
-'$Name: damascus $'
+'$Name: eugene $'
 
 !-----------------------------------------------------------------------
 ! ----- model time -----
@@ -190,18 +190,18 @@ contains
 
       unit = open_file ('time_stamp.out', action='write')
 
-      if ( get_my_pe() == 0 ) write (unit,20) date(3:6)
+      if ( get_my_pe() == 0 ) write (unit,20) date
 
 !     ---- compute ending time in days,hours,minutes,seconds ----
       call get_time ( Time_end, date(6), date(3) )
       date(4) = date(6)/3600; date(6) = date(6) - date(4)*3600
       date(5) = date(6)/60  ; date(6) = date(6) - date(5)*60
 
-      if ( get_my_pe() == 0 ) write (unit,20) date(3:6)
+      if ( get_my_pe() == 0 ) write (unit,20) date
 
       call close_file (unit)
 
-  20  format (i6,3i4)
+  20  format (6i4,2x,'day')
 
 !-----------------------------------------------------------------------
 !----- compute the time steps ------
