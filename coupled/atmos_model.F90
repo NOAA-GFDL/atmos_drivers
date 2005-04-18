@@ -113,7 +113,8 @@ type land_ice_atmos_boundary_type
    real, dimension(:,:),   pointer :: dt_q           =>NULL() ! specific humidity tendency at the lowest level
    real, dimension(:,:),   pointer :: u_flux         =>NULL() ! zonal wind stress
    real, dimension(:,:),   pointer :: v_flux         =>NULL() ! meridional wind stress
-   real, dimension(:,:),   pointer :: dtaudv         =>NULL() ! derivative of wind stress w.r.t. the lowest level wind speed
+   real, dimension(:,:),   pointer :: dtaudu         =>NULL() ! derivative of zonal wind stress w.r.t. the lowest zonal level wind speed
+   real, dimension(:,:),   pointer :: dtaudv         =>NULL() ! derivative of meridional wind stress w.r.t. the lowest meridional level wind speed
    real, dimension(:,:),   pointer :: u_star         =>NULL() ! friction velocity
    real, dimension(:,:),   pointer :: b_star         =>NULL() ! bouyancy scale
    real, dimension(:,:),   pointer :: q_star         =>NULL() ! moisture scale
@@ -140,8 +141,8 @@ end type ice_atmos_boundary_type
 integer :: atmClock
 !-----------------------------------------------------------------------
 
-character(len=128) :: version = '$Id: atmos_model.F90,v 11.0 2004/09/28 19:07:54 fms Exp $'
-character(len=128) :: tagname = '$Name: khartoum $'
+character(len=128) :: version = '$Id: atmos_model.F90,v 12.0 2005/04/14 15:35:34 fms Exp $'
+character(len=128) :: tagname = '$Name: lima $'
 
 !-----------------------------------------------------------------------
 character(len=80) :: restart_format = 'atmos_coupled_mod restart format 01'
@@ -202,6 +203,7 @@ subroutine update_atmos_model_down( Surface_boundary, Atmos )
                           Surface_boundary%u_star,      &
                           Surface_boundary%b_star,      &
                           Surface_boundary%q_star, &
+                          Surface_boundary%dtaudu,      &
                           Surface_boundary%dtaudv,      &
                           Surface_boundary%u_flux,      &
                           Surface_boundary%v_flux,      &
@@ -555,7 +557,7 @@ end subroutine atmos_model_init
 
 subroutine atmos_model_end (Atmos)
 
-type (atmos_data_type), intent(in) :: Atmos
+type (atmos_data_type), intent(inout) :: Atmos
 integer :: unit, sec, day, dt
 character(len=64) :: fname = 'RESTART/atmos_coupled.res.nc'
 !-----------------------------------------------------------------------
