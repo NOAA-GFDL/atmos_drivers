@@ -66,7 +66,7 @@
 <h4>OTHER MODULES USED</h4>
 <!-- BEGIN OTHER MODULES USED -->
 <div>
-<pre>           mpp_mod<br>   mpp_domains_mod<br>           fms_mod<br>        fms_io_mod<br>  time_manager_mod<br> field_manager_mod<br>tracer_manager_mod<br> diag_integral_mod<br>    atmosphere_mod</pre>
+<pre>           mpp_mod<br>   mpp_domains_mod<br>           fms_mod<br>        fms_io_mod<br>  time_manager_mod<br> field_manager_mod<br>tracer_manager_mod<br> diag_integral_mod<br>    atmosphere_mod<br> coupler_types_mod</pre>
 </div>
 <!-- END OTHER MODULES USED -->
 <!-- BEGIN PUBLIC INTERFACE -->
@@ -279,7 +279,7 @@
      real, pointer, dimension(:)   :: lon_bnd  =&gt; NULL() ! local longitude axis grid box boundaries in radians.
      real, pointer, dimension(:)   :: lat_bnd  =&gt; NULL() ! local latitude axis grid box boundaries in radians.
      real, pointer, dimension(:,:) :: t_bot    =&gt; NULL() ! temperature at lowest model level
-     real, pointer, dimension(:,:) :: q_bot    =&gt; NULL() ! specific humidity at lowest model level
+     real, pointer, dimension(:,:,:) :: tr_bot   =&gt; NULL() ! tracers at lowest model level
      real, pointer, dimension(:,:) :: z_bot    =&gt; NULL() ! height above the surface for the lowest model level
      real, pointer, dimension(:,:) :: p_bot    =&gt; NULL() ! pressure at lowest model level
      real, pointer, dimension(:,:) :: u_bot    =&gt; NULL() ! zonal wind component at lowest model level
@@ -300,12 +300,21 @@
      real, pointer, dimension(:,:) :: flux_lw  =&gt; NULL() ! net longwave flux (W/m2) at the surface
      real, pointer, dimension(:,:) :: lprec    =&gt; NULL() ! mass of liquid precipitation since last time step (Kg/m2)
      real, pointer, dimension(:,:) :: fprec    =&gt; NULL() ! ass of frozen precipitation since last time step (Kg/m2)
+     logical, pointer, dimension(:,:) :: maskmap =&gt;NULL()! A pointer to an array indicating which
+                                                         ! logical processors are actually used for
+                                                         ! the ocean code. The other logical
+                                                         ! processors would be all land points and
+                                                         ! are not assigned to actual processors.
+                                                         ! This need not be assigned if all logical
+                                                         ! processors are used. This variable is dummy and need 
+                                                         ! not to be set, but it is needed to pass compilation.
      type (surf_diff_type)         :: Surf_diff          ! store data needed by the multi-step version of the diffusion algorithm
      type (time_type)              :: Time               ! current time
      type (time_type)              :: Time_step          ! atmospheric time step.
      type (time_type)              :: Time_init          ! reference time.
      integer, pointer              :: pelist(:) =&gt;NULL() ! pelist where atmosphere is running.
      logical                       :: pe                 ! current pe.
+     type(coupler_2d_bc_type)      :: fields             ! array of fields used for additional tracers
  end type</pre>
 </td>
 </tr>
@@ -322,7 +331,7 @@
    real, dimension(:,:),   pointer :: albedo_nir_dif =&gt;NULL()
    real, dimension(:,:),   pointer :: land_frac      =&gt;NULL() ! fraction amount of land in a grid box 
    real, dimension(:,:),   pointer :: dt_t           =&gt;NULL() ! temperature tendency at the lowest level
-   real, dimension(:,:),   pointer :: dt_q           =&gt;NULL() ! specific humidity tendency at the lowest level
+   real, dimension(:,:,:), pointer :: dt_tr          =&gt;NULL() ! tracer tendency at the lowest level
    real, dimension(:,:),   pointer :: u_flux         =&gt;NULL() ! zonal wind stress
    real, dimension(:,:),   pointer :: v_flux         =&gt;NULL() ! meridional wind stress
    real, dimension(:,:),   pointer :: dtaudu         =&gt;NULL() ! derivative of zonal wind stress w.r.t. the lowest zonal level wind speed
