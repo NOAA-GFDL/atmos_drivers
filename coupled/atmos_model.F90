@@ -45,6 +45,7 @@ use atmosphere_mod,     only: atmosphere_up, atmosphere_down, atmosphere_init
 use atmosphere_mod,     only: atmosphere_end, get_bottom_mass, get_bottom_wind
 use atmosphere_mod,     only: atmosphere_resolution, atmosphere_domain
 use atmosphere_mod,     only: atmosphere_boundary, get_atmosphere_axes
+use atmosphere_mod,     only: get_stock_pe
 use atmosphere_mod,     only: surf_diff_type
 use coupler_types_mod,  only: coupler_2d_bc_type
 
@@ -56,6 +57,7 @@ private
 public update_atmos_model_down, update_atmos_model_up
 public atmos_model_init, atmos_model_end, atmos_data_type
 public land_ice_atmos_boundary_type, land_atmos_boundary_type
+public atm_stock_pe
 public ice_atmos_boundary_type
 !-----------------------------------------------------------------------
 
@@ -151,8 +153,8 @@ end type ice_atmos_boundary_type
 integer :: atmClock
 !-----------------------------------------------------------------------
 
-character(len=128) :: version = '$Id: atmos_model.F90,v 13.0 2006/03/28 21:05:27 fms Exp $'
-character(len=128) :: tagname = '$Name: memphis_2006_08 $'
+character(len=128) :: version = '$Id: atmos_model.F90,v 13.0.4.3.2.1 2006/11/09 18:57:59 fms Exp $'
+character(len=128) :: tagname = '$Name: memphis_2006_12 $'
 
 integer :: ivapor = NO_TRACER ! index of water vapor tracer
 
@@ -286,7 +288,8 @@ type (atmos_data_type), intent(inout) :: Atmos
     Atmos%Surf_diff%delta_tr = Surface_boundary%dt_tr
 
     call atmosphere_up (Atmos%Time,  Surface_boundary%land_frac, Atmos%Surf_diff, &
-                        Atmos%lprec, Atmos%fprec, Atmos%gust)
+                        Atmos%lprec, Atmos%fprec, Atmos%gust, &
+                        Surface_boundary%u_star, Surface_boundary%b_star, Surface_boundary%q_star)
 
 !   --- advance time ---
 
@@ -654,6 +657,47 @@ character(len=64) :: fname = 'RESTART/atmos_coupled.res.nc'
 !-----------------------------------------------------------------------
 
 end subroutine atmos_model_end
+! </SUBROUTINE>
+
+!#######################################################################
+! <SUBROUTINE NAME="atm_stock_pe">
+!
+! <OVERVIEW>
+!  returns the total stock in atmospheric model
+! </OVERVIEW>
+
+! <DESCRIPTION>
+!  Called to compute and return the total stock (e.g., water, heat, etc.)
+! in the atmospheric on the current PE.
+! </DESCRIPTION>
+
+! <TEMPLATE>
+!   call atm_stock_pe (Atmos, index, value)
+! </TEMPLATE>
+
+! <INOUT NAME="Atm" TYPE="type(atmos_data_type)">
+!   Derived-type variable that contains fields needed by the flux exchange module.
+! </INOUT>
+!
+! <IN NAME="index" TYPE="integer">
+!   Index of stock to be computed.
+! </IN>
+!
+! <OUT NAME="value" TYPE="real">
+!   Value of stock on the current processor.
+! </OUT>
+
+subroutine atm_stock_pe (Atm, index, value)
+
+type (atmos_data_type), intent(inout) :: Atm
+integer,                intent(in)    :: index
+real,                   intent(out)   :: value
+
+   value = 0.0
+   if(Atm%pe) call get_stock_pe (index, value)
+
+end subroutine atm_stock_pe
+
 ! </SUBROUTINE>
 
 !#######################################################################
