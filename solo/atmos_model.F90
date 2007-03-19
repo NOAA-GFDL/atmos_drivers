@@ -7,7 +7,7 @@ program atmos_model
 !
 !-----------------------------------------------------------------------
 
-use   atmosphere_mod, only: atmosphere_init, atmosphere_end, atmosphere
+use   atmosphere_mod, only: atmosphere_init, atmosphere_end, atmosphere, atmosphere_domain
 
 use time_manager_mod, only: time_type, set_time, get_time,  &
                             operator(+), operator (<), operator (>), &
@@ -19,9 +19,10 @@ use          fms_mod, only: file_exist, check_nml_error,                &
                             stdlog, write_version_number,               &
                             open_namelist_file, open_restart_file,      &
                             mpp_clock_id, mpp_clock_begin,              &
-                            mpp_clock_end, CLOCK_COMPONENT
+                            mpp_clock_end, CLOCK_COMPONENT, set_domain, nullify_domain
 use       fms_io_mod, only: fms_io_exit
 
+use  mpp_domains_mod, only: domain2d
 use       mpp_io_mod, only: mpp_open, mpp_close, MPP_ASCII, MPP_OVERWR, &
                             MPP_SEQUENTIAL, MPP_SINGLE, MPP_RDONLY, MPP_DELETE
 
@@ -29,16 +30,17 @@ use diag_manager_mod, only: diag_manager_init, diag_manager_end, get_base_date
 
 use  field_manager_mod, only: MODEL_ATMOS
 use tracer_manager_mod, only: register_tracers
+use       memutils_mod, only: print_memuse_stats
 
 implicit none
 
 !-----------------------------------------------------------------------
 
 character(len=128), parameter :: version = &
-'$Id: atmos_model.F90,v 13.0 2006/03/28 21:05:33 fms Exp $'
+'$Id: atmos_model.F90,v 14.0 2007/03/15 21:59:43 fms Exp $'
 
 character(len=128), parameter :: tag = &
-'$Name: memphis_2006_12 $'
+'$Name: nalanda $'
 
 !-----------------------------------------------------------------------
 !       ----- model time -----
@@ -58,13 +60,18 @@ character(len=128), parameter :: tag = &
    integer, parameter :: timing_level = 1
 
 !-----------------------------------------------------------------------
+   character(len=80) :: text
+!-----------------------------------------------------------------------
+   type(domain2d), save :: atmos_domain  ! This variable must be treated as read-only
+!-----------------------------------------------------------------------
 
       integer, dimension(4) :: current_time = (/ 0, 0, 0, 0 /)
       integer :: days=0, hours=0, minutes=0, seconds=0
       integer :: dt_atmos = 0
+      integer :: memuse_interval = 72
 
       namelist /main_nml/ current_time, dt_atmos,  &
-                          days, hours, minutes, seconds
+                          days, hours, minutes, seconds, memuse_interval
 
 !#######################################################################
 
@@ -80,6 +87,11 @@ character(len=128), parameter :: tag = &
        call atmosphere (Time)
 
        Time = Time + Time_step_atmos
+
+       if(modulo(na,memuse_interval) == 0) then
+         write( text,'(a,i4)' )'Main loop at timestep=',na
+         call print_memuse_stats(text)
+       endif
 
     enddo
 
@@ -233,6 +245,7 @@ contains
 !------ initialize atmospheric model ------
 
       call atmosphere_init (Time_init, Time, Time_step_atmos)
+      call atmosphere_domain(atmos_domain)
 
 !-----------------------------------------------------------------------
 !   open and close dummy file in restart dir to check if dir exists
@@ -245,6 +258,7 @@ contains
 
 !-----------------------------------------------------------------------
 
+   call print_memuse_stats('atmos_model_init')
    end subroutine atmos_model_init
 
 !#######################################################################
@@ -280,9 +294,11 @@ contains
       endif
 
 !----- final output of diagnostic fields ----
+      call set_domain(atmos_domain)  ! This assumes all output fields are on the atmos domain
 
       call diag_manager_end (Time)
 
+      call nullify_domain()
 
       call mpp_clock_end (id_end)
 !-----------------------------------------------------------------------

@@ -153,8 +153,8 @@ end type ice_atmos_boundary_type
 integer :: atmClock
 !-----------------------------------------------------------------------
 
-character(len=128) :: version = '$Id: atmos_model.F90,v 13.0.4.3.2.1 2006/11/09 18:57:59 fms Exp $'
-character(len=128) :: tagname = '$Name: memphis_2006_12 $'
+character(len=128) :: version = '$Id: atmos_model.F90,v 14.0 2007/03/15 21:59:38 fms Exp $'
+character(len=128) :: tagname = '$Name: nalanda $'
 
 integer :: ivapor = NO_TRACER ! index of water vapor tracer
 
