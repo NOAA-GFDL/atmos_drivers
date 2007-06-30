@@ -66,10 +66,10 @@ public ice_atmos_boundary_type
      type (domain2d)               :: domain             ! domain decomposition
      integer                       :: axes(4)            ! axis indices (returned by diag_manager) for the atmospheric grid 
                                                          ! (they correspond to the x, y, pfull, phalf axes)
-     real, pointer, dimension(:)   :: glon_bnd => NULL() ! global longitude axis grid box boundaries in radians.
-     real, pointer, dimension(:)   :: glat_bnd => NULL() ! global latitude axis grid box boundaries in radians.
-     real, pointer, dimension(:)   :: lon_bnd  => NULL() ! local longitude axis grid box boundaries in radians.
-     real, pointer, dimension(:)   :: lat_bnd  => NULL() ! local latitude axis grid box boundaries in radians.
+     real, pointer, dimension(:,:) :: glon_bnd => NULL() ! global longitude axis grid box corners in radians.
+     real, pointer, dimension(:,:) :: glat_bnd => NULL() ! global latitude axis grid box corners in radians.
+     real, pointer, dimension(:,:) :: lon_bnd  => NULL() ! local longitude axis grid box corners in radians.
+     real, pointer, dimension(:,:) :: lat_bnd  => NULL() ! local latitude axis grid box corners in radians.
      real, pointer, dimension(:,:) :: t_bot    => NULL() ! temperature at lowest model level
      real, pointer, dimension(:,:,:) :: tr_bot   => NULL() ! tracers at lowest model level
      real, pointer, dimension(:,:) :: z_bot    => NULL() ! height above the surface for the lowest model level
@@ -153,8 +153,8 @@ end type ice_atmos_boundary_type
 integer :: atmClock
 !-----------------------------------------------------------------------
 
-character(len=128) :: version = '$Id: atmos_model.F90,v 14.0 2007/03/15 21:59:38 fms Exp $'
-character(len=128) :: tagname = '$Name: nalanda_2007_04 $'
+character(len=128) :: version = '$Id: atmos_model.F90,v 14.0.2.2 2007/05/25 16:31:54 vb Exp $'
+character(len=128) :: tagname = '$Name: nalanda_2007_06 $'
 
 integer :: ivapor = NO_TRACER ! index of water vapor tracer
 
@@ -398,10 +398,10 @@ type (time_type), intent(in) :: Time_init, Time, Time_step
     call atmosphere_resolution (nlon, nlat, global=.false.)
     call atmosphere_domain     (Atmos%domain)
 
-    allocate ( Atmos % glon_bnd (mlon+1),    &
-               Atmos % glat_bnd (mlat+1),    &
-               Atmos %  lon_bnd (nlon+1),    &
-               Atmos %  lat_bnd (nlat+1),    &
+    allocate ( Atmos % glon_bnd (mlon+1,mlat+1), &
+               Atmos % glat_bnd (mlon+1,mlat+1), &
+               Atmos %  lon_bnd (nlon+1,nlat+1), &
+               Atmos %  lat_bnd (nlon+1,nlat+1), &
                Atmos % t_bot    (nlon,nlat), &
                Atmos % tr_bot    (nlon,nlat, ntprog), &
                Atmos % z_bot    (nlon,nlat), &
@@ -544,9 +544,10 @@ type (time_type), intent(in) :: Time_init, Time, Time_step
    endif
   
 !------ initialize global integral package ------
+!**** TEMPORARY FIX FOR GRID CELL CORNER PROBLEM ****
 
     call diag_integral_init (Atmos % Time_init, Atmos % Time,  &
-                             Atmos % lon_bnd,   Atmos % lat_bnd)
+                             Atmos % lon_bnd(:,1),   Atmos % lat_bnd(1,:))
 
 !-----------------------------------------------------------------------
 atmClock = mpp_clock_id( 'Atmosphere', flags=clock_flag_default, grain=CLOCK_COMPONENT )
@@ -599,8 +600,8 @@ character(len=64) :: fname = 'RESTART/atmos_coupled.res.nc'
      if(mpp_pe() == mpp_root_pe()) then
         call mpp_error ('atmos_model_mod', 'Writing netCDF formatted restart file.', NOTE)
      endif
-     call write_data(fname, 'glon_bnd', real( size(Atmos%glon_bnd(:))-1), no_domain=.true. )
-     call write_data(fname, 'glat_bnd', real( size(Atmos%glat_bnd(:))-1), no_domain=.true. )
+     call write_data(fname, 'glon_bnd', real( size(Atmos%glon_bnd,1)-1), no_domain=.true. )
+     call write_data(fname, 'glat_bnd', real( size(Atmos%glat_bnd,2)-1), no_domain=.true. )
      call write_data(fname, 'dt', real( dt), no_domain=.true. )
      call write_data(fname, 'lprec', Atmos%lprec, Atmos%domain)
      call write_data(fname, 'fprec', Atmos%fprec, Atmos%domain)
@@ -613,7 +614,7 @@ character(len=64) :: fname = 'RESTART/atmos_coupled.res.nc'
      unit = open_restart_file ('RESTART/atmos_coupled.res', 'write')
      if (mpp_pe() == mpp_root_pe()) then
         write (unit) restart_format
-        write (unit) size(Atmos%glon_bnd(:))-1, size(Atmos%glat_bnd(:))-1, dt
+        write (unit) size(Atmos%glon_bnd,1)-1, size(Atmos%glat_bnd,2)-1, dt
      endif
      call write_data ( unit, Atmos % lprec )
      call write_data ( unit, Atmos % fprec )

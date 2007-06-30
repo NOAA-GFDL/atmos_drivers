@@ -40,7 +40,7 @@ character(len=128), parameter :: version = &
 '$Id: atmos_model.F90,v 14.0 2007/03/15 21:59:43 fms Exp $'
 
 character(len=128), parameter :: tag = &
-'$Name: nalanda_2007_04 $'
+'$Name: nalanda_2007_06 $'
 
 !-----------------------------------------------------------------------
 !       ----- model time -----
