@@ -31,16 +31,17 @@ use diag_manager_mod, only: diag_manager_init, diag_manager_end, get_base_date
 use  field_manager_mod, only: MODEL_ATMOS
 use tracer_manager_mod, only: register_tracers
 use       memutils_mod, only: print_memuse_stats
+use   constants_mod,    only: SECONDS_PER_HOUR,  SECONDS_PER_MINUTE
 
 implicit none
 
 !-----------------------------------------------------------------------
 
 character(len=128), parameter :: version = &
-'$Id: atmos_model.F90,v 14.0 2007/03/15 21:59:43 fms Exp $'
+'$Id: atmos_model.F90,v 15.0 2007/08/14 03:52:00 fms Exp $'
 
 character(len=128), parameter :: tag = &
-'$Name: nalanda_2007_06 $'
+'$Name: omsk $'
 
 !-----------------------------------------------------------------------
 !       ----- model time -----
@@ -197,9 +198,9 @@ contains
 !----- set initial and current time types ------
 !----- set run length and compute ending time -----
 
-    Time_init  = set_time (date_init(4)*3600 + date_init(5)*60 + date_init(6), date_init(3))
-    Time       = set_time (date     (4)*3600 + date     (5)*60 + date     (6), date     (3))
-    Run_length = set_time (       hours*3600 +      minutes*60 +      seconds, days        )
+    Time_init  = set_time(date_init(4)*int(SECONDS_PER_HOUR)+date_init(5)*int(SECONDS_PER_MINUTE)+date_init(6),date_init(3))
+    Time       = set_time(date     (4)*int(SECONDS_PER_HOUR)+date     (5)*int(SECONDS_PER_MINUTE)+date     (6),date     (3))
+    Run_length = set_time(       hours*int(SECONDS_PER_HOUR)+     minutes*int(SECONDS_PER_MINUTE)+     seconds,days        )
     Time_end   = Time + Run_length
 
 !-----------------------------------------------------------------------
@@ -212,9 +213,9 @@ contains
 
 !     compute ending time in days,hours,minutes,seconds
       call get_time ( Time_end, date(6), date(3) )  ! gets sec,days
-      date(4) = date(6)/3600; date(6) = date(6) - date(4)*3600
-      date(5) = date(6)/60  ; date(6) = date(6) - date(5)*60
 
+      date(4) = date(6)/int(SECONDS_PER_HOUR); date(6) = date(6) - date(4)*int(SECONDS_PER_HOUR)
+      date(5) = date(6)/int(SECONDS_PER_MINUTE)  ; date(6) = date(6) - date(5)*int(SECONDS_PER_MINUTE)
       if ( mpp_pe() == mpp_root_pe() ) write (unit,20) date
 
       call mpp_close (unit)
@@ -275,8 +276,8 @@ contains
 
       date(1:2) = 0
       call get_time ( Time, date(6), date(3) )
-      date(4) = date(6)/3600; date(6) = date(6) - date(4)*3600
-      date(5) = date(6)/60  ; date(6) = date(6) - date(5)*60
+      date(4) = date(6)/int(SECONDS_PER_HOUR); date(6) = date(6) - date(4)*int(SECONDS_PER_HOUR)
+      date(5) = date(6)/int(SECONDS_PER_MINUTE); date(6) = date(6) - date(5)*int(SECONDS_PER_MINUTE)
 
 !----- check time versus expected ending time ----
 
