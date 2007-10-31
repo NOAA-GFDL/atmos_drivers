@@ -77,6 +77,7 @@ public ice_atmos_boundary_type
      real, pointer, dimension(:,:) :: u_bot    => NULL() ! zonal wind component at lowest model level
      real, pointer, dimension(:,:) :: v_bot    => NULL() ! meridional wind component at lowest model level
      real, pointer, dimension(:,:) :: p_surf   => NULL() ! surface pressure 
+     real, pointer, dimension(:,:) :: slp      => NULL() ! sea level pressure 
      real, pointer, dimension(:,:) :: gust     => NULL() ! gustiness factor
      real, pointer, dimension(:,:) :: coszen   => NULL() ! cosine of the zenith angle
      real, pointer, dimension(:,:) :: flux_sw  => NULL() ! net shortwave flux (W/m2) at the surface
@@ -153,8 +154,8 @@ end type ice_atmos_boundary_type
 integer :: atmClock
 !-----------------------------------------------------------------------
 
-character(len=128) :: version = '$Id: atmos_model.F90,v 15.0 2007/08/14 03:51:57 fms Exp $'
-character(len=128) :: tagname = '$Name: omsk $'
+character(len=128) :: version = '$Id: atmos_model.F90,v 15.0.2.1 2007/09/19 17:38:38 bw Exp $'
+character(len=128) :: tagname = '$Name: omsk_2007_10 $'
 
 integer :: ivapor = NO_TRACER ! index of water vapor tracer
 
@@ -296,9 +297,9 @@ type (atmos_data_type), intent(inout) :: Atmos
     Atmos % Time = Atmos % Time + Atmos % Time_step
 
 
-    call get_bottom_mass (Atmos % t_bot, Atmos % tr_bot,  &
-                          Atmos % p_bot, Atmos % z_bot,  &
-                          Atmos % p_surf                 )
+    call get_bottom_mass (Atmos % t_bot,  Atmos % tr_bot, &
+                          Atmos % p_bot,  Atmos % z_bot,  &
+                          Atmos % p_surf, Atmos % slp     )
 
     call get_bottom_wind (Atmos % u_bot, Atmos % v_bot)
 
@@ -409,6 +410,7 @@ type (time_type), intent(in) :: Time_init, Time, Time_step
                Atmos % u_bot    (nlon,nlat), &
                Atmos % v_bot    (nlon,nlat), &
                Atmos % p_surf   (nlon,nlat), &
+               Atmos % slp      (nlon,nlat), &
                Atmos % gust     (nlon,nlat), &
                Atmos % flux_sw  (nlon,nlat), &
                Atmos % flux_sw_dir (nlon,nlat), &
@@ -451,9 +453,9 @@ type (time_type), intent(in) :: Time_init, Time, Time_step
     call atmosphere_boundary ( Atmos %  lon_bnd, Atmos %  lat_bnd, &
                                global=.false. )
 
-    call get_bottom_mass (Atmos % t_bot, Atmos % tr_bot,  &
-                          Atmos % p_bot, Atmos % z_bot,  &
-                          Atmos % p_surf                 )
+    call get_bottom_mass (Atmos % t_bot,  Atmos % tr_bot, &
+                          Atmos % p_bot,  Atmos % z_bot,  &
+                          Atmos % p_surf, Atmos % slp     )
 
     call get_bottom_wind (Atmos % u_bot, Atmos % v_bot)
 
@@ -639,6 +641,7 @@ character(len=64) :: fname = 'RESTART/atmos_coupled.res.nc'
                Atmos % u_bot    , &
                Atmos % v_bot    , &
                Atmos % p_surf   , &
+               Atmos % slp      , &
                Atmos % gust     , &
                Atmos % flux_sw  , &
                Atmos % flux_sw_dir  , &
