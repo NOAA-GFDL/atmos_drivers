@@ -155,7 +155,7 @@ integer :: atmClock
 !-----------------------------------------------------------------------
 
 character(len=128) :: version = '$Id: atmos_model.F90,v 15.0.2.1 2007/09/19 17:38:38 bw Exp $'
-character(len=128) :: tagname = '$Name: omsk_2007_10 $'
+character(len=128) :: tagname = '$Name: omsk_2007_12 $'
 
 integer :: ivapor = NO_TRACER ! index of water vapor tracer
 
