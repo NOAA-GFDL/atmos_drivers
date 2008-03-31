@@ -41,6 +41,8 @@ use field_manager_mod,  only: MODEL_ATMOS
 use tracer_manager_mod, only: get_number_tracers, get_tracer_index, NO_TRACER
 use diag_integral_mod,  only: diag_integral_init, diag_integral_end
 use diag_integral_mod,  only: diag_integral_output
+use atmosphere_mod,     only: atmosphere_cell_area
+use xgrid_mod,          only: grid_box_type
 use atmosphere_mod,     only: atmosphere_up, atmosphere_down, atmosphere_init
 use atmosphere_mod,     only: atmosphere_end, get_bottom_mass, get_bottom_wind
 use atmosphere_mod,     only: atmosphere_resolution, atmosphere_domain
@@ -108,7 +110,9 @@ public ice_atmos_boundary_type
      integer, pointer              :: pelist(:) =>NULL() ! pelist where atmosphere is running.
      logical                       :: pe                 ! current pe.
      type(coupler_2d_bc_type)      :: fields             ! array of fields used for additional tracers
- end type
+     type(grid_box_type)           :: grid               ! hold grid information needed for 2nd order conservative flux exchange 
+                                                         ! to calculate gradient on cubic sphere grid.
+ end type atmos_data_type
 !</PUBLICTYPE >
 
 !<PUBLICTYPE >
@@ -154,8 +158,8 @@ end type ice_atmos_boundary_type
 integer :: atmClock
 !-----------------------------------------------------------------------
 
-character(len=128) :: version = '$Id: atmos_model.F90,v 15.0.2.1 2007/09/19 17:38:38 bw Exp $'
-character(len=128) :: tagname = '$Name: omsk_2007_12 $'
+character(len=128) :: version = '$Id: atmos_model.F90,v 15.0.2.1.2.2 2008/02/12 17:31:06 z1l Exp $'
+character(len=128) :: tagname = '$Name: omsk_2008_03 $'
 
 integer :: ivapor = NO_TRACER ! index of water vapor tracer
 
@@ -355,6 +359,7 @@ type (time_type), intent(in) :: Time_init, Time, Time_step
   integer :: unit, ntrace, ntprog, ntdiag, ntfamily, i, j
   integer :: mlon, mlat, nlon, nlat, sec, day, ipts, jpts, dt, dto
   character(len=80) :: control
+  real, dimension(:,:), allocatable :: area
   integer :: ierr, io
 !-----------------------------------------------------------------------
 
@@ -390,7 +395,7 @@ type (time_type), intent(in) :: Time_init, Time, Time_step
 !  ----- initialize atmospheric model -----
 
     call atmosphere_init (Atmos%Time_init, Atmos%Time, Atmos%Time_step,&
-                          Atmos%Surf_diff )
+                          Atmos%Surf_diff, Atmos%grid )
                            
 !-----------------------------------------------------------------------
 !---- allocate space ----
@@ -548,8 +553,14 @@ type (time_type), intent(in) :: Time_init, Time, Time_step
 !------ initialize global integral package ------
 !**** TEMPORARY FIX FOR GRID CELL CORNER PROBLEM ****
 
+    allocate (area (nlon, nlat))
+! call atmosphere_cell_area to obtain array of grid cell areas needed
+! by diag_integral_init
+    call atmosphere_cell_area (area)
     call diag_integral_init (Atmos % Time_init, Atmos % Time,  &
-                             Atmos % lon_bnd(:,1),   Atmos % lat_bnd(1,:))
+                             Atmos % lon_bnd(:,:),  &
+                             Atmos % lat_bnd(:,:), area)
+    deallocate (area)
 
 !-----------------------------------------------------------------------
 atmClock = mpp_clock_id( 'Atmosphere', flags=clock_flag_default, grain=CLOCK_COMPONENT )
@@ -585,7 +596,7 @@ character(len=64) :: fname = 'RESTART/atmos_coupled.res.nc'
 !-----------------------------------------------------------------------
 !---- termination routine for atmospheric model ----
                                               
-  call atmosphere_end (Atmos % Time)
+  call atmosphere_end (Atmos % Time, Atmos%grid)
 
 !------ global integrals ------
 
