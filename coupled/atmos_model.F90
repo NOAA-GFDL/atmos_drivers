@@ -36,6 +36,8 @@ use fms_mod,            only: close_file,  write_version_number, stdlog
 use fms_mod,            only: read_data, write_data, clock_flag_default
 use fms_mod,            only: open_restart_file, open_namelist_file, check_nml_error
 use fms_io_mod,         only: get_restart_io_mode
+use fms_io_mod,         only: restart_file_type, register_restart_field
+use fms_io_mod,         only: save_restart, restore_state, get_mosaic_tile_file
 use time_manager_mod,   only: time_type, operator(+), get_time
 use field_manager_mod,  only: MODEL_ATMOS
 use tracer_manager_mod, only: get_number_tracers, get_tracer_index, NO_TRACER
@@ -49,7 +51,11 @@ use atmosphere_mod,     only: atmosphere_resolution, atmosphere_domain
 use atmosphere_mod,     only: atmosphere_boundary, get_atmosphere_axes
 use atmosphere_mod,     only: get_stock_pe
 use atmosphere_mod,     only: surf_diff_type
+use atmosphere_mod,     only: atmosphere_restart
 use coupler_types_mod,  only: coupler_2d_bc_type
+
+use fms_mod,                 only: stdout
+use mpp_mod,                 only: mpp_chksum
 
 !-----------------------------------------------------------------------
 
@@ -61,6 +67,7 @@ public atmos_model_init, atmos_model_end, atmos_data_type
 public land_ice_atmos_boundary_type, land_atmos_boundary_type
 public atm_stock_pe
 public ice_atmos_boundary_type
+public atmos_model_restart, check_atmos_data_type
 !-----------------------------------------------------------------------
 
 !<PUBLICTYPE >
@@ -156,10 +163,17 @@ end type ice_atmos_boundary_type
 
 !Balaji
 integer :: atmClock
+
+!for restart
+integer                 :: ipts, jpts, dto
+type(restart_file_type), pointer, save :: Atm_restart => NULL()
+type(restart_file_type), pointer, save :: Til_restart => NULL()
+logical                                :: in_different_file = .false.
+
 !-----------------------------------------------------------------------
 
-character(len=128) :: version = '$Id: atmos_model.F90,v 16.0 2008/07/30 22:05:37 fms Exp $'
-character(len=128) :: tagname = '$Name: perth $'
+character(len=128) :: version = '$Id: atmos_model.F90,v 16.0.2.1.2.1 2008/09/22 18:01:35 wfc Exp $'
+character(len=128) :: tagname = '$Name: perth_2008_10 $'
 
 integer :: ivapor = NO_TRACER ! index of water vapor tracer
 
@@ -357,10 +371,12 @@ type (atmos_data_type), intent(inout) :: Atmos
 type (time_type), intent(in) :: Time_init, Time, Time_step
 
   integer :: unit, ntrace, ntprog, ntdiag, ntfamily, i, j
-  integer :: mlon, mlat, nlon, nlat, sec, day, ipts, jpts, dt, dto
+  integer :: mlon, mlat, nlon, nlat, sec, day, dt
   character(len=80) :: control
   real, dimension(:,:), allocatable :: area
   integer :: ierr, io
+  character(len=64) :: filename, filename2
+  integer           :: id_restart
 !-----------------------------------------------------------------------
 
 !---- set the atmospheric model time ------
@@ -483,28 +499,42 @@ type (time_type), intent(in) :: Time_init, Time, Time_step
    endif
 
 !------ read initial state for several atmospheric fields ------
+   filename = 'atmos_coupled.res.nc'
+   call get_mosaic_tile_file(filename, filename2, .false., Atmos%domain ) 
+   allocate(Atm_restart)
+   if(trim(filename2) == trim(filename)) then
+      Til_restart => Atm_restart
+      in_different_file = .false.
+   else
+      in_different_file = .true.
+      allocate(Til_restart)
+   endif
 
-   if ( file_exist('INPUT/atmos_coupled.res.nc') ) then
+   id_restart = register_restart_field(Atm_restart, filename, 'glon_bnd', ipts)
+   id_restart = register_restart_field(Atm_restart, filename, 'glat_bnd', jpts)
+   id_restart = register_restart_field(Atm_restart, filename, 'dt', dto)
+   id_restart = register_restart_field(Til_restart, filename, 'lprec', Atmos % lprec, domain=Atmos%domain)
+   id_restart = register_restart_field(Til_restart, filename, 'fprec', Atmos % fprec, domain=Atmos%domain)
+   id_restart = register_restart_field(Til_restart, filename, 'gust',  Atmos % gust,  domain=Atmos%domain)
+   if (restart_tbot_qbot) then
+      id_restart = register_restart_field(Til_restart, filename, 't_bot', Atmos%t_bot, domain=Atmos%domain)
+      id_restart = register_restart_field(Til_restart, filename, 'q_bot', Atmos%tr_bot(:,:,ivapor), domain=Atmos%domain)
+   end if
+
+   call get_time (Atmos % Time_step, sec, day)
+   dt = sec + 86400*day  ! integer seconds
+
+   filename = 'INPUT/atmos_coupled.res.nc'
+   if ( file_exist(filename) ) then
        if(mpp_pe() == mpp_root_pe() ) call mpp_error ('atmos_model_mod', &
                    'Reading netCDF formatted restart file: INPUT/atmos_coupled.res.nc', NOTE)
-       call read_data('INPUT/atmos_coupled.res.nc', 'glon_bnd', ipts, no_domain=.true.)
-       call read_data('INPUT/atmos_coupled.res.nc', 'glat_bnd', jpts, no_domain=.true.)
-
+       call restore_state(Atm_restart)
+       if(in_different_file)call restore_state(Til_restart)
        if (ipts /= mlon .or. jpts /= mlat) call error_mesg &
                ('coupled_atmos_init', 'incorrect resolution on restart file', FATAL)
 
-       call read_data('INPUT/atmos_coupled.res.nc', 'dt', dto, no_domain=.true.)
-       call read_data('INPUT/atmos_coupled.res.nc', 'lprec', Atmos % lprec, Atmos%domain)
-       call read_data('INPUT/atmos_coupled.res.nc', 'fprec', Atmos % fprec, Atmos%domain)
-       call read_data('INPUT/atmos_coupled.res.nc', 'gust', Atmos % gust, Atmos%domain)
-
-       if (restart_tbot_qbot) then
-          call read_data('INPUT/atmos_coupled.res.nc', 't_bot', Atmos%t_bot, Atmos%domain)
-          call read_data('INPUT/atmos_coupled.res.nc', 'q_bot', Atmos%tr_bot(:,:,ivapor), Atmos%domain)
-       endif 
-
-       call get_time (Atmos % Time_step, sec, day)
-       dt = sec + 86400*day  ! integer seconds
+!---- if the time step has changed then convert ----
+!        tendency to conserve mass of water
        if (dto /= dt) then
           Atmos % lprec = Atmos % lprec * real(dto)/real(dt)
           Atmos % fprec = Atmos % fprec * real(dto)/real(dt)
@@ -533,10 +563,8 @@ type (time_type), intent(in) :: Time_init, Time, Time_step
           endif
           call close_file (unit)
 
-          !---- if the time step has changed then convert ----
-       !        tendency to conserve mass of water
-          call get_time (Atmos % Time_step, sec, day)
-          dt = sec + 86400*day  ! integer seconds
+!---- if the time step has changed then convert ----
+!        tendency to conserve mass of water
           if (dto /= dt) then
              Atmos % lprec = Atmos % lprec * real(dto)/real(dt)
              Atmos % fprec = Atmos % fprec * real(dto)/real(dt)
@@ -549,7 +577,12 @@ type (time_type), intent(in) :: Time_init, Time, Time_step
         Atmos % fprec = 0.0
         Atmos % gust  = 1.0
    endif
-  
+
+   ! to be written to restart file
+   ipts = mlon
+   jpts = mlat  
+   dto  = dt 
+
 !------ initialize global integral package ------
 !**** TEMPORARY FIX FOR GRID CELL CORNER PROBLEM ****
 
@@ -591,8 +624,7 @@ end subroutine atmos_model_init
 subroutine atmos_model_end (Atmos)
 
 type (atmos_data_type), intent(inout) :: Atmos
-integer :: unit, sec, day, dt
-character(len=64) :: fname = 'RESTART/atmos_coupled.res.nc'
+
 !-----------------------------------------------------------------------
 !---- termination routine for atmospheric model ----
                                               
@@ -602,42 +634,9 @@ character(len=64) :: fname = 'RESTART/atmos_coupled.res.nc'
 
   call diag_integral_end (Atmos % Time)
 
-!---- compute integer time step (in seconds) ----
-  call get_time (Atmos % Time_step, sec, day)
-  dt = sec + 86400*day
-
 !------ write several atmospheric fields ------
 !        also resolution and time step
-
-  if( do_netcdf_restart) then
-     if(mpp_pe() == mpp_root_pe()) then
-        call mpp_error ('atmos_model_mod', 'Writing netCDF formatted restart file.', NOTE)
-     endif
-     call write_data(fname, 'glon_bnd', real( size(Atmos%glon_bnd,1)-1), no_domain=.true. )
-     call write_data(fname, 'glat_bnd', real( size(Atmos%glat_bnd,2)-1), no_domain=.true. )
-     call write_data(fname, 'dt', real( dt), no_domain=.true. )
-     call write_data(fname, 'lprec', Atmos%lprec, Atmos%domain)
-     call write_data(fname, 'fprec', Atmos%fprec, Atmos%domain)
-     call write_data(fname, 'gust', Atmos%gust, Atmos%domain)
-     if(restart_tbot_qbot) then
-        call write_data(fname, 't_bot', Atmos%t_bot, Atmos%domain)
-        call write_data(fname, 'q_bot', Atmos%tr_bot(:,:,ivapor), Atmos%domain)
-     endif
-  else
-     unit = open_restart_file ('RESTART/atmos_coupled.res', 'write')
-     if (mpp_pe() == mpp_root_pe()) then
-        write (unit) restart_format
-        write (unit) size(Atmos%glon_bnd,1)-1, size(Atmos%glat_bnd,2)-1, dt
-     endif
-     call write_data ( unit, Atmos % lprec )
-     call write_data ( unit, Atmos % fprec )
-     call write_data ( unit, Atmos % gust  )
-     if(restart_tbot_qbot) then
-        call write_data ( unit, Atmos % t_bot  )
-        call write_data ( unit, Atmos % tr_bot(:,:,ivapor)  )
-     endif
-     call close_file (unit)
-  endif
+  call atmos_model_local_restart(Atmos)
 
 !-------- deallocate space --------
 
@@ -673,7 +672,56 @@ character(len=64) :: fname = 'RESTART/atmos_coupled.res.nc'
 
 end subroutine atmos_model_end
 ! </SUBROUTINE>
+  !#######################################################################
+  ! <SUBROUTINE NAME="atmos_model_restart">
+  ! <DESCRIPTION>
+  !  Write out restart files registered through register_restart_file
+  ! </DESCRIPTION>
+  subroutine atmos_model_restart(Atmos, timestamp)
+    type (atmos_data_type),   intent(inout) :: Atmos
+    character(len=*),  intent(in)           :: timestamp
 
+    call atmosphere_restart(timestamp)
+    call atmos_model_local_restart(Atmos, timestamp)
+
+  end subroutine atmos_model_restart
+  ! </SUBROUTINE>
+
+  !#######################################################################
+  ! <SUBROUTINE NAME="atmos_model_local_restart">
+  ! <DESCRIPTION>
+  !  Write out restart files registered through register_restart_file
+  ! </DESCRIPTION>
+  subroutine atmos_model_local_restart(Atmos, timestamp)
+    type (atmos_data_type),   intent(inout) :: Atmos
+    character(len=*),  intent(in), optional :: timestamp
+    integer :: unit
+    if( do_netcdf_restart) then
+       if(mpp_pe() == mpp_root_pe()) then
+          call mpp_error ('atmos_model_mod', 'Writing netCDF formatted restart file.', NOTE)
+       endif
+       call save_restart(Atm_restart, timestamp)
+       if(in_different_file) call save_restart(Til_restart, timestamp)
+    else
+       if(present(timestamp)) call mpp_error ('atmos_model_mod',  &
+            'intermediate restart capability is not implemented for non-netcdf file', FATAL)
+       unit = open_restart_file ('RESTART/atmos_coupled.res', 'write')
+       if (mpp_pe() == mpp_root_pe()) then
+          write (unit) restart_format
+          write (unit) ipts, jpts, dto
+       endif
+       call write_data ( unit, Atmos % lprec )
+       call write_data ( unit, Atmos % fprec )
+       call write_data ( unit, Atmos % gust  )
+       if(restart_tbot_qbot) then
+          call write_data ( unit, Atmos % t_bot  )
+          call write_data ( unit, Atmos % tr_bot(:,:,ivapor)  )
+       endif
+       call close_file (unit)
+    endif
+
+  end subroutine atmos_model_local_restart
+  ! </SUBROUTINE>
 !#######################################################################
 ! <SUBROUTINE NAME="atm_stock_pe">
 !
@@ -716,6 +764,73 @@ end subroutine atm_stock_pe
 ! </SUBROUTINE>
 
 !#######################################################################
+!#######################################################################
+! <SUBROUTINE NAME="check_atmos_data_type">
+!
+! <OVERVIEW>
+!  Print checksums of the various fields in the atmos_data_type.
+! </OVERVIEW>
+
+! <DESCRIPTION>
+!  Routine to print checksums of the various fields in the atmos_data_type.
+! </DESCRIPTION>
+
+! <TEMPLATE>
+!   call check_atmos_data_type(atm, id, timestep)
+! </TEMPLATE>
+
+! <IN NAME="Atm" TYPE="type(atmos_data_type)">
+!   Derived-type variable that contains fields in the atmos_data_type.
+! </INOUT>
+!
+! <IN NAME="id" TYPE="character">
+!   Label to differentiate where this routine in being called from.
+! </IN>
+!
+! <IN NAME="timestep" TYPE="integer">
+!   An integer to indicate which timestep this routine is being called for.
+! </IN>
+!
+subroutine check_atmos_data_type(atm, id, timestep)
+type(atmos_data_type), intent(in) :: atm 
+    character(len=*), intent(in) :: id
+    integer         , intent(in) :: timestep
+
+100 FORMAT("CHECKSUM::",A32," = ",Z20)
+101 FORMAT("CHECKSUM::",A16,a,'%',a," = ",Z20)
+
+  write(stdout(),*) 'BEGIN CHECKSUM(Atmos_data_type):: ', id, timestep
+  write(stdout(),100) ' atm%glon_bnd               ', mpp_chksum(atm%glon_bnd              )
+  write(stdout(),100) ' atm%glat_bnd               ', mpp_chksum(atm%glat_bnd              )
+  write(stdout(),100) ' atm%lon_bnd                ', mpp_chksum(atm%lon_bnd               )
+  write(stdout(),100) ' atm%lat_bnd                ', mpp_chksum(atm%lat_bnd               )
+  write(stdout(),100) ' atm%t_bot                  ', mpp_chksum(atm%t_bot                 )
+  write(stdout(),100) ' atm%tr_bot                 ', mpp_chksum(atm%tr_bot              )
+  write(stdout(),100) ' atm%z_bot                  ', mpp_chksum(atm%z_bot                 )
+  write(stdout(),100) ' atm%p_bot                  ', mpp_chksum(atm%p_bot                 )
+  write(stdout(),100) ' atm%u_bot                  ', mpp_chksum(atm%u_bot                 )
+  write(stdout(),100) ' atm%v_bot                  ', mpp_chksum(atm%v_bot                 )
+  write(stdout(),100) ' atm%p_surf                 ', mpp_chksum(atm%p_surf                )
+  write(stdout(),100) ' atm%slp                    ', mpp_chksum(atm%slp                   )
+  write(stdout(),100) ' atm%gust                   ', mpp_chksum(atm%gust                  )
+  write(stdout(),100) ' atm%coszen                 ', mpp_chksum(atm%coszen                )
+  write(stdout(),100) ' atm%flux_sw                ', mpp_chksum(atm%flux_sw               )
+  write(stdout(),100) ' atm%flux_sw_dir            ', mpp_chksum(atm%flux_sw_dir           )
+  write(stdout(),100) ' atm%flux_sw_dif            ', mpp_chksum(atm%flux_sw_dif           )
+  write(stdout(),100) ' atm%flux_sw_down_vis_dir   ', mpp_chksum(atm%flux_sw_down_vis_dir  )
+  write(stdout(),100) ' atm%flux_sw_down_vis_dif   ', mpp_chksum(atm%flux_sw_down_vis_dif  )
+  write(stdout(),100) ' atm%flux_sw_down_total_dir ', mpp_chksum(atm%flux_sw_down_total_dir)
+  write(stdout(),100) ' atm%flux_sw_down_total_dif ', mpp_chksum(atm%flux_sw_down_total_dif)
+  write(stdout(),100) ' atm%flux_sw_vis            ', mpp_chksum(atm%flux_sw_vis           )
+  write(stdout(),100) ' atm%flux_sw_vis_dir        ', mpp_chksum(atm%flux_sw_vis_dir       )
+  write(stdout(),100) ' atm%flux_sw_vis_dif        ', mpp_chksum(atm%flux_sw_vis_dif       )
+  write(stdout(),100) ' atm%flux_lw                ', mpp_chksum(atm%flux_lw               )
+  write(stdout(),100) ' atm%lprec                  ', mpp_chksum(atm%lprec                 )
+  write(stdout(),100) ' atm%fprec                  ', mpp_chksum(atm%fprec                 )
+
+end subroutine check_atmos_data_type
+
+! </SUBROUTINE>
 
 end module atmos_model_mod
 
