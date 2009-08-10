@@ -29,10 +29,10 @@ module atmos_model_mod
 !</DESCRIPTION>
 
 use mpp_mod,            only: mpp_pe, mpp_root_pe, mpp_clock_id, mpp_clock_begin
-use mpp_mod,            only: mpp_clock_end, CLOCK_COMPONENT, mpp_error
+use mpp_mod,            only: mpp_clock_end, CLOCK_COMPONENT, mpp_error, mpp_chksum
 use mpp_domains_mod,    only: domain2d
 use fms_mod,            only: file_exist, error_mesg, field_size, FATAL, NOTE
-use fms_mod,            only: close_file,  write_version_number, stdlog
+use fms_mod,            only: close_file,  write_version_number, stdlog, stdout
 use fms_mod,            only: read_data, write_data, clock_flag_default
 use fms_mod,            only: open_restart_file, open_namelist_file, check_nml_error
 use fms_io_mod,         only: get_restart_io_mode
@@ -54,8 +54,6 @@ use atmosphere_mod,     only: surf_diff_type
 use atmosphere_mod,     only: atmosphere_restart
 use coupler_types_mod,  only: coupler_2d_bc_type
 
-use fms_mod,                 only: stdout
-use mpp_mod,                 only: mpp_chksum
 
 !-----------------------------------------------------------------------
 
@@ -172,8 +170,8 @@ logical                                :: in_different_file = .false.
 
 !-----------------------------------------------------------------------
 
-character(len=128) :: version = '$Id: atmos_model.F90,v 16.0.2.1.2.1 2008/09/22 18:01:35 wfc Exp $'
-character(len=128) :: tagname = '$Name: perth_2008_10 $'
+character(len=128) :: version = '$Id: atmos_model.F90,v 17.0 2009/07/21 02:52:47 fms Exp $'
+character(len=128) :: tagname = '$Name: quebec $'
 
 integer :: ivapor = NO_TRACER ! index of water vapor tracer
 
@@ -374,7 +372,7 @@ type (time_type), intent(in) :: Time_init, Time, Time_step
   integer :: mlon, mlat, nlon, nlat, sec, day, dt
   character(len=80) :: control
   real, dimension(:,:), allocatable :: area
-  integer :: ierr, io
+  integer :: ierr, io, logunit
   character(len=64) :: filename, filename2
   integer           :: id_restart
 !-----------------------------------------------------------------------
@@ -384,6 +382,7 @@ type (time_type), intent(in) :: Time_init, Time, Time_step
    Atmos % Time_init = Time_init
    Atmos % Time      = Time
    Atmos % Time_step = Time_step
+   logunit = stdlog()
 
    if ( file_exist('input.nml')) then
       unit = open_namelist_file ( )
@@ -485,17 +484,14 @@ type (time_type), intent(in) :: Time_init, Time, Time_step
 
    call write_version_number ( version, tagname )
 !  write the namelist to a log file
-   if( mpp_pe()==0 ) then
+   if (mpp_pe() == mpp_root_pe()) then
       unit = stdlog( )
       write (unit, nml=atmos_model_nml)
       call close_file (unit)
-   endif
-
 !  number of tracers
-   if (mpp_pe() == mpp_root_pe()) then
-        write (stdlog(), '(a,i3)') 'Number of tracers =', ntrace
-        write (stdlog(), '(a,i3)') 'Number of prognostic tracers =', ntprog
-        write (stdlog(), '(a,i3)') 'Number of diagnostic tracers =', ntdiag
+      write (unit, '(a,i3)') 'Number of tracers =', ntrace
+      write (unit, '(a,i3)') 'Number of prognostic tracers =', ntprog
+      write (unit, '(a,i3)') 'Number of diagnostic tracers =', ntdiag
    endif
 
 !------ read initial state for several atmospheric fields ------
@@ -538,7 +534,7 @@ type (time_type), intent(in) :: Time_init, Time, Time_step
        if (dto /= dt) then
           Atmos % lprec = Atmos % lprec * real(dto)/real(dt)
           Atmos % fprec = Atmos % fprec * real(dto)/real(dt)
-          if (mpp_pe() == mpp_root_pe()) write (stdlog(),50)
+          if (mpp_pe() == mpp_root_pe()) write (logunit,50)
        endif
    else if (file_exist('INPUT/atmos_coupled.res')) then
           if(mpp_pe() == mpp_root_pe() ) call mpp_error ('atmos_model_mod', &
@@ -568,7 +564,7 @@ type (time_type), intent(in) :: Time_init, Time, Time_step
           if (dto /= dt) then
              Atmos % lprec = Atmos % lprec * real(dto)/real(dt)
              Atmos % fprec = Atmos % fprec * real(dto)/real(dt)
-             if (mpp_pe() == mpp_root_pe()) write (stdlog(),50)
+             if (mpp_pe() == mpp_root_pe()) write (logunit,50)
  50         format (/,'The model time step changed .... &
                       &modifying precipitation tendencies')
           endif
@@ -796,37 +792,40 @@ type(atmos_data_type), intent(in) :: atm
     character(len=*), intent(in) :: id
     integer         , intent(in) :: timestep
 
+    integer                      :: outunit
+
 100 FORMAT("CHECKSUM::",A32," = ",Z20)
 101 FORMAT("CHECKSUM::",A16,a,'%',a," = ",Z20)
 
-  write(stdout(),*) 'BEGIN CHECKSUM(Atmos_data_type):: ', id, timestep
-  write(stdout(),100) ' atm%glon_bnd               ', mpp_chksum(atm%glon_bnd              )
-  write(stdout(),100) ' atm%glat_bnd               ', mpp_chksum(atm%glat_bnd              )
-  write(stdout(),100) ' atm%lon_bnd                ', mpp_chksum(atm%lon_bnd               )
-  write(stdout(),100) ' atm%lat_bnd                ', mpp_chksum(atm%lat_bnd               )
-  write(stdout(),100) ' atm%t_bot                  ', mpp_chksum(atm%t_bot                 )
-  write(stdout(),100) ' atm%tr_bot                 ', mpp_chksum(atm%tr_bot              )
-  write(stdout(),100) ' atm%z_bot                  ', mpp_chksum(atm%z_bot                 )
-  write(stdout(),100) ' atm%p_bot                  ', mpp_chksum(atm%p_bot                 )
-  write(stdout(),100) ' atm%u_bot                  ', mpp_chksum(atm%u_bot                 )
-  write(stdout(),100) ' atm%v_bot                  ', mpp_chksum(atm%v_bot                 )
-  write(stdout(),100) ' atm%p_surf                 ', mpp_chksum(atm%p_surf                )
-  write(stdout(),100) ' atm%slp                    ', mpp_chksum(atm%slp                   )
-  write(stdout(),100) ' atm%gust                   ', mpp_chksum(atm%gust                  )
-  write(stdout(),100) ' atm%coszen                 ', mpp_chksum(atm%coszen                )
-  write(stdout(),100) ' atm%flux_sw                ', mpp_chksum(atm%flux_sw               )
-  write(stdout(),100) ' atm%flux_sw_dir            ', mpp_chksum(atm%flux_sw_dir           )
-  write(stdout(),100) ' atm%flux_sw_dif            ', mpp_chksum(atm%flux_sw_dif           )
-  write(stdout(),100) ' atm%flux_sw_down_vis_dir   ', mpp_chksum(atm%flux_sw_down_vis_dir  )
-  write(stdout(),100) ' atm%flux_sw_down_vis_dif   ', mpp_chksum(atm%flux_sw_down_vis_dif  )
-  write(stdout(),100) ' atm%flux_sw_down_total_dir ', mpp_chksum(atm%flux_sw_down_total_dir)
-  write(stdout(),100) ' atm%flux_sw_down_total_dif ', mpp_chksum(atm%flux_sw_down_total_dif)
-  write(stdout(),100) ' atm%flux_sw_vis            ', mpp_chksum(atm%flux_sw_vis           )
-  write(stdout(),100) ' atm%flux_sw_vis_dir        ', mpp_chksum(atm%flux_sw_vis_dir       )
-  write(stdout(),100) ' atm%flux_sw_vis_dif        ', mpp_chksum(atm%flux_sw_vis_dif       )
-  write(stdout(),100) ' atm%flux_lw                ', mpp_chksum(atm%flux_lw               )
-  write(stdout(),100) ' atm%lprec                  ', mpp_chksum(atm%lprec                 )
-  write(stdout(),100) ' atm%fprec                  ', mpp_chksum(atm%fprec                 )
+  outunit = stdout()
+  write(outunit,*) 'BEGIN CHECKSUM(Atmos_data_type):: ', id, timestep
+  write(outunit,100) ' atm%glon_bnd               ', mpp_chksum(atm%glon_bnd              )
+  write(outunit,100) ' atm%glat_bnd               ', mpp_chksum(atm%glat_bnd              )
+  write(outunit,100) ' atm%lon_bnd                ', mpp_chksum(atm%lon_bnd               )
+  write(outunit,100) ' atm%lat_bnd                ', mpp_chksum(atm%lat_bnd               )
+  write(outunit,100) ' atm%t_bot                  ', mpp_chksum(atm%t_bot                 )
+  write(outunit,100) ' atm%tr_bot                 ', mpp_chksum(atm%tr_bot              )
+  write(outunit,100) ' atm%z_bot                  ', mpp_chksum(atm%z_bot                 )
+  write(outunit,100) ' atm%p_bot                  ', mpp_chksum(atm%p_bot                 )
+  write(outunit,100) ' atm%u_bot                  ', mpp_chksum(atm%u_bot                 )
+  write(outunit,100) ' atm%v_bot                  ', mpp_chksum(atm%v_bot                 )
+  write(outunit,100) ' atm%p_surf                 ', mpp_chksum(atm%p_surf                )
+  write(outunit,100) ' atm%slp                    ', mpp_chksum(atm%slp                   )
+  write(outunit,100) ' atm%gust                   ', mpp_chksum(atm%gust                  )
+  write(outunit,100) ' atm%coszen                 ', mpp_chksum(atm%coszen                )
+  write(outunit,100) ' atm%flux_sw                ', mpp_chksum(atm%flux_sw               )
+  write(outunit,100) ' atm%flux_sw_dir            ', mpp_chksum(atm%flux_sw_dir           )
+  write(outunit,100) ' atm%flux_sw_dif            ', mpp_chksum(atm%flux_sw_dif           )
+  write(outunit,100) ' atm%flux_sw_down_vis_dir   ', mpp_chksum(atm%flux_sw_down_vis_dir  )
+  write(outunit,100) ' atm%flux_sw_down_vis_dif   ', mpp_chksum(atm%flux_sw_down_vis_dif  )
+  write(outunit,100) ' atm%flux_sw_down_total_dir ', mpp_chksum(atm%flux_sw_down_total_dir)
+  write(outunit,100) ' atm%flux_sw_down_total_dif ', mpp_chksum(atm%flux_sw_down_total_dif)
+  write(outunit,100) ' atm%flux_sw_vis            ', mpp_chksum(atm%flux_sw_vis           )
+  write(outunit,100) ' atm%flux_sw_vis_dir        ', mpp_chksum(atm%flux_sw_vis_dir       )
+  write(outunit,100) ' atm%flux_sw_vis_dif        ', mpp_chksum(atm%flux_sw_vis_dif       )
+  write(outunit,100) ' atm%flux_lw                ', mpp_chksum(atm%flux_lw               )
+  write(outunit,100) ' atm%lprec                  ', mpp_chksum(atm%lprec                 )
+  write(outunit,100) ' atm%fprec                  ', mpp_chksum(atm%fprec                 )
 
 end subroutine check_atmos_data_type
 

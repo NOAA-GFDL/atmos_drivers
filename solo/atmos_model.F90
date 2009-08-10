@@ -38,10 +38,10 @@ implicit none
 !-----------------------------------------------------------------------
 
 character(len=128), parameter :: version = &
-'$Id: atmos_model.F90,v 15.0 2007/08/14 03:52:00 fms Exp $'
+'$Id: atmos_model.F90,v 17.0 2009/07/21 02:52:50 fms Exp $'
 
 character(len=128), parameter :: tag = &
-'$Name: perth_2008_10 $'
+'$Name: quebec $'
 
 !-----------------------------------------------------------------------
 !       ----- model time -----
@@ -197,7 +197,10 @@ contains
 
 !----- set initial and current time types ------
 !----- set run length and compute ending time -----
-
+#ifdef MARS_GCM
+!               Dont allow minutes in the Mars model
+    date_init(5)= 0.0
+#endif MARS_GCM
     Time_init  = set_time(date_init(4)*int(SECONDS_PER_HOUR)+date_init(5)*int(SECONDS_PER_MINUTE)+date_init(6),date_init(3))
     Time       = set_time(date     (4)*int(SECONDS_PER_HOUR)+date     (5)*int(SECONDS_PER_MINUTE)+date     (6),date     (3))
     Run_length = set_time(       hours*int(SECONDS_PER_HOUR)+     minutes*int(SECONDS_PER_MINUTE)+     seconds,days        )
@@ -213,9 +216,12 @@ contains
 
 !     compute ending time in days,hours,minutes,seconds
       call get_time ( Time_end, date(6), date(3) )  ! gets sec,days
-
       date(4) = date(6)/int(SECONDS_PER_HOUR); date(6) = date(6) - date(4)*int(SECONDS_PER_HOUR)
+#ifdef MARS_GCM
+      date(5) = 0                                ; date(6) = date(6) - date(5)*int(SECONDS_PER_MINUTE)
+#else
       date(5) = date(6)/int(SECONDS_PER_MINUTE)  ; date(6) = date(6) - date(5)*int(SECONDS_PER_MINUTE)
+#endif
       if ( mpp_pe() == mpp_root_pe() ) write (unit,20) date
 
       call mpp_close (unit)
@@ -277,7 +283,11 @@ contains
       date(1:2) = 0
       call get_time ( Time, date(6), date(3) )
       date(4) = date(6)/int(SECONDS_PER_HOUR); date(6) = date(6) - date(4)*int(SECONDS_PER_HOUR)
+#ifdef MARS_GCM
+      date(5) = 0                              ; date(6) = date(6) - date(5)*int(SECONDS_PER_MINUTE)
+#else
       date(5) = date(6)/int(SECONDS_PER_MINUTE); date(6) = date(6) - date(5)*int(SECONDS_PER_MINUTE)
+#endif MARS_GCM
 
 !----- check time versus expected ending time ----
 
