@@ -41,7 +41,7 @@ character(len=128), parameter :: version = &
 '$Id: atmos_model.F90,v 17.0 2009/07/21 02:52:50 fms Exp $'
 
 character(len=128), parameter :: tag = &
-'$Name: quebec $'
+'$Name: quebec_200910 $'
 
 !-----------------------------------------------------------------------
 !       ----- model time -----
