@@ -73,8 +73,6 @@ public atmos_model_restart, check_atmos_data_type
      type (domain2d)               :: domain             ! domain decomposition
      integer                       :: axes(4)            ! axis indices (returned by diag_manager) for the atmospheric grid 
                                                          ! (they correspond to the x, y, pfull, phalf axes)
-     real, pointer, dimension(:,:) :: glon_bnd => NULL() ! global longitude axis grid box corners in radians.
-     real, pointer, dimension(:,:) :: glat_bnd => NULL() ! global latitude axis grid box corners in radians.
      real, pointer, dimension(:,:) :: lon_bnd  => NULL() ! local longitude axis grid box corners in radians.
      real, pointer, dimension(:,:) :: lat_bnd  => NULL() ! local latitude axis grid box corners in radians.
      real, pointer, dimension(:,:) :: t_bot    => NULL() ! temperature at lowest model level
@@ -170,8 +168,8 @@ logical                                :: in_different_file = .false.
 
 !-----------------------------------------------------------------------
 
-character(len=128) :: version = '$Id: atmos_model.F90,v 17.0 2009/07/21 02:52:47 fms Exp $'
-character(len=128) :: tagname = '$Name: quebec_200910 $'
+character(len=128) :: version = '$Id: atmos_model.F90,v 18.0 2010/03/02 23:27:56 fms Exp $'
+character(len=128) :: tagname = '$Name: riga $'
 
 integer :: ivapor = NO_TRACER ! index of water vapor tracer
 
@@ -419,9 +417,7 @@ type (time_type), intent(in) :: Time_init, Time, Time_step
     call atmosphere_resolution (nlon, nlat, global=.false.)
     call atmosphere_domain     (Atmos%domain)
 
-    allocate ( Atmos % glon_bnd (mlon+1,mlat+1), &
-               Atmos % glat_bnd (mlon+1,mlat+1), &
-               Atmos %  lon_bnd (nlon+1,nlat+1), &
+    allocate ( Atmos %  lon_bnd (nlon+1,nlat+1), &
                Atmos %  lat_bnd (nlon+1,nlat+1), &
                Atmos % t_bot    (nlon,nlat), &
                Atmos % tr_bot    (nlon,nlat, ntprog), &
@@ -468,8 +464,6 @@ type (time_type), intent(in) :: Time_init, Time, Time_step
 
     call get_atmosphere_axes ( Atmos % axes )
 
-    call atmosphere_boundary ( Atmos % glon_bnd, Atmos % glat_bnd, &
-                               global=.true. )
     call atmosphere_boundary ( Atmos %  lon_bnd, Atmos %  lat_bnd, &
                                global=.false. )
 
@@ -636,9 +630,7 @@ type (atmos_data_type), intent(inout) :: Atmos
 
 !-------- deallocate space --------
 
-  deallocate ( Atmos % glon_bnd , &
-               Atmos % glat_bnd , &
-               Atmos %  lon_bnd , &
+  deallocate ( Atmos %  lon_bnd , &
                Atmos %  lat_bnd , &
                Atmos % t_bot    , &
                Atmos % tr_bot   , &
@@ -799,8 +791,6 @@ type(atmos_data_type), intent(in) :: atm
 
   outunit = stdout()
   write(outunit,*) 'BEGIN CHECKSUM(Atmos_data_type):: ', id, timestep
-  write(outunit,100) ' atm%glon_bnd               ', mpp_chksum(atm%glon_bnd              )
-  write(outunit,100) ' atm%glat_bnd               ', mpp_chksum(atm%glat_bnd              )
   write(outunit,100) ' atm%lon_bnd                ', mpp_chksum(atm%lon_bnd               )
   write(outunit,100) ' atm%lat_bnd                ', mpp_chksum(atm%lat_bnd               )
   write(outunit,100) ' atm%t_bot                  ', mpp_chksum(atm%t_bot                 )
