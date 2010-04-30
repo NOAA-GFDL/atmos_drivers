@@ -169,7 +169,7 @@ logical                                :: in_different_file = .false.
 !-----------------------------------------------------------------------
 
 character(len=128) :: version = '$Id: atmos_model.F90,v 18.0 2010/03/02 23:27:56 fms Exp $'
-character(len=128) :: tagname = '$Name: riga $'
+character(len=128) :: tagname = '$Name: riga_201004 $'
 
 integer :: ivapor = NO_TRACER ! index of water vapor tracer
 
