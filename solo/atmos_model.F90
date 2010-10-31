@@ -7,6 +7,12 @@ program atmos_model
 !
 !-----------------------------------------------------------------------
 
+#ifdef INTERNAL_FILE_NML
+use mpp_mod, only: input_nml_file
+#else
+use fms_mod, only: open_namelist_file
+#endif
+
 use   atmosphere_mod, only: atmosphere_init, atmosphere_end, atmosphere, atmosphere_domain
 
 use time_manager_mod, only: time_type, set_time, get_time,  &
@@ -17,7 +23,7 @@ use          fms_mod, only: file_exist, check_nml_error,                &
                             error_mesg, FATAL, WARNING,                 &
                             mpp_pe, mpp_root_pe, fms_init, fms_end,     &
                             stdlog, write_version_number,               &
-                            open_namelist_file, open_restart_file,      &
+                            open_restart_file,                          &
                             mpp_clock_id, mpp_clock_begin,              &
                             mpp_clock_end, CLOCK_COMPONENT, set_domain, nullify_domain
 use       fms_io_mod, only: fms_io_exit
@@ -38,10 +44,10 @@ implicit none
 !-----------------------------------------------------------------------
 
 character(len=128), parameter :: version = &
-'$Id: atmos_model.F90,v 17.0 2009/07/21 02:52:50 fms Exp $'
+'$Id: atmos_model.F90,v 17.0.2.1 2010/09/03 12:59:12 pjp Exp $'
 
 character(len=128), parameter :: tag = &
-'$Name: riga_201006 $'
+'$Name: riga_201012 $'
 
 !-----------------------------------------------------------------------
 !       ----- model time -----
@@ -132,12 +138,17 @@ contains
 
 !----- read namelist -------
 
+#ifdef INTERNAL_FILE_NML
+     read (input_nml_file, nml=main_nml, iostat=io)
+     ierr = check_nml_error(io, 'main_nml')
+#else
    unit = open_namelist_file ( )
    ierr=1; do while (ierr /= 0)
           read  (unit, nml=main_nml, iostat=io, end=10)
           ierr = check_nml_error (io, 'main_nml')
    enddo
 10 call mpp_close (unit)
+#endif
 
 !----- write namelist to logfile -----
 
