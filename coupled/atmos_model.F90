@@ -31,10 +31,15 @@ module atmos_model_mod
 use mpp_mod,            only: mpp_pe, mpp_root_pe, mpp_clock_id, mpp_clock_begin
 use mpp_mod,            only: mpp_clock_end, CLOCK_COMPONENT, mpp_error, mpp_chksum
 use mpp_domains_mod,    only: domain2d
+#ifdef INTERNAL_FILE_NML
+use mpp_mod,            only: input_nml_file
+#else
+use fms_mod,            only: open_namelist_file
+#endif
 use fms_mod,            only: file_exist, error_mesg, field_size, FATAL, NOTE
 use fms_mod,            only: close_file,  write_version_number, stdlog, stdout
 use fms_mod,            only: read_data, write_data, clock_flag_default
-use fms_mod,            only: open_restart_file, open_namelist_file, check_nml_error
+use fms_mod,            only: open_restart_file, check_nml_error
 use fms_io_mod,         only: get_restart_io_mode
 use fms_io_mod,         only: restart_file_type, register_restart_field
 use fms_io_mod,         only: save_restart, restore_state, get_mosaic_tile_file
@@ -76,32 +81,32 @@ public ice_atm_bnd_type_chksum
      type (domain2d)               :: domain             ! domain decomposition
      integer                       :: axes(4)            ! axis indices (returned by diag_manager) for the atmospheric grid 
                                                          ! (they correspond to the x, y, pfull, phalf axes)
-     real, pointer, dimension(:,:) :: lon_bnd  => NULL() ! local longitude axis grid box corners in radians.
-     real, pointer, dimension(:,:) :: lat_bnd  => NULL() ! local latitude axis grid box corners in radians.
-     real, pointer, dimension(:,:) :: t_bot    => NULL() ! temperature at lowest model level
-     real, pointer, dimension(:,:,:) :: tr_bot   => NULL() ! tracers at lowest model level
-     real, pointer, dimension(:,:) :: z_bot    => NULL() ! height above the surface for the lowest model level
-     real, pointer, dimension(:,:) :: p_bot    => NULL() ! pressure at lowest model level
-     real, pointer, dimension(:,:) :: u_bot    => NULL() ! zonal wind component at lowest model level
-     real, pointer, dimension(:,:) :: v_bot    => NULL() ! meridional wind component at lowest model level
-     real, pointer, dimension(:,:) :: p_surf   => NULL() ! surface pressure 
-     real, pointer, dimension(:,:) :: slp      => NULL() ! sea level pressure 
-     real, pointer, dimension(:,:) :: gust     => NULL() ! gustiness factor
-     real, pointer, dimension(:,:) :: coszen   => NULL() ! cosine of the zenith angle
-     real, pointer, dimension(:,:) :: flux_sw  => NULL() ! net shortwave flux (W/m2) at the surface
-     real, pointer, dimension(:,:) :: flux_sw_dir            =>NULL()
-     real, pointer, dimension(:,:) :: flux_sw_dif            =>NULL()
-     real, pointer, dimension(:,:) :: flux_sw_down_vis_dir   =>NULL()
-     real, pointer, dimension(:,:) :: flux_sw_down_vis_dif   =>NULL()
-     real, pointer, dimension(:,:) :: flux_sw_down_total_dir =>NULL()
-     real, pointer, dimension(:,:) :: flux_sw_down_total_dif =>NULL()
-     real, pointer, dimension(:,:) :: flux_sw_vis            =>NULL()
-     real, pointer, dimension(:,:) :: flux_sw_vis_dir        =>NULL()
-     real, pointer, dimension(:,:) :: flux_sw_vis_dif        =>NULL()
-     real, pointer, dimension(:,:) :: flux_lw  => NULL() ! net longwave flux (W/m2) at the surface
-     real, pointer, dimension(:,:) :: lprec    => NULL() ! mass of liquid precipitation since last time step (Kg/m2)
-     real, pointer, dimension(:,:) :: fprec    => NULL() ! ass of frozen precipitation since last time step (Kg/m2)
-     logical, pointer, dimension(:,:) :: maskmap =>NULL()! A pointer to an array indicating which
+     real, pointer, dimension(:,:) :: lon_bnd  => null() ! local longitude axis grid box corners in radians.
+     real, pointer, dimension(:,:) :: lat_bnd  => null() ! local latitude axis grid box corners in radians.
+     real, pointer, dimension(:,:) :: t_bot    => null() ! temperature at lowest model level
+     real, pointer, dimension(:,:,:) :: tr_bot   => null() ! tracers at lowest model level
+     real, pointer, dimension(:,:) :: z_bot    => null() ! height above the surface for the lowest model level
+     real, pointer, dimension(:,:) :: p_bot    => null() ! pressure at lowest model level
+     real, pointer, dimension(:,:) :: u_bot    => null() ! zonal wind component at lowest model level
+     real, pointer, dimension(:,:) :: v_bot    => null() ! meridional wind component at lowest model level
+     real, pointer, dimension(:,:) :: p_surf   => null() ! surface pressure 
+     real, pointer, dimension(:,:) :: slp      => null() ! sea level pressure 
+     real, pointer, dimension(:,:) :: gust     => null() ! gustiness factor
+     real, pointer, dimension(:,:) :: coszen   => null() ! cosine of the zenith angle
+     real, pointer, dimension(:,:) :: flux_sw  => null() ! net shortwave flux (W/m2) at the surface
+     real, pointer, dimension(:,:) :: flux_sw_dir            =>null()
+     real, pointer, dimension(:,:) :: flux_sw_dif            =>null()
+     real, pointer, dimension(:,:) :: flux_sw_down_vis_dir   =>null()
+     real, pointer, dimension(:,:) :: flux_sw_down_vis_dif   =>null()
+     real, pointer, dimension(:,:) :: flux_sw_down_total_dir =>null()
+     real, pointer, dimension(:,:) :: flux_sw_down_total_dif =>null()
+     real, pointer, dimension(:,:) :: flux_sw_vis            =>null()
+     real, pointer, dimension(:,:) :: flux_sw_vis_dir        =>null()
+     real, pointer, dimension(:,:) :: flux_sw_vis_dif        =>null()
+     real, pointer, dimension(:,:) :: flux_lw  => null() ! net longwave flux (W/m2) at the surface
+     real, pointer, dimension(:,:) :: lprec    => null() ! mass of liquid precipitation since last time step (Kg/m2)
+     real, pointer, dimension(:,:) :: fprec    => null() ! ass of frozen precipitation since last time step (Kg/m2)
+     logical, pointer, dimension(:,:) :: maskmap =>null()! A pointer to an array indicating which
                                                          ! logical processors are actually used for
                                                          ! the ocean code. The other logical
                                                          ! processors would be all land points and
@@ -113,7 +118,7 @@ public ice_atm_bnd_type_chksum
      type (time_type)              :: Time               ! current time
      type (time_type)              :: Time_step          ! atmospheric time step.
      type (time_type)              :: Time_init          ! reference time.
-     integer, pointer              :: pelist(:) =>NULL() ! pelist where atmosphere is running.
+     integer, pointer              :: pelist(:) =>null() ! pelist where atmosphere is running.
      logical                       :: pe                 ! current pe.
      type(coupler_2d_bc_type)      :: fields             ! array of fields used for additional tracers
      type(grid_box_type)           :: grid               ! hold grid information needed for 2nd order conservative flux exchange 
@@ -125,38 +130,38 @@ public ice_atm_bnd_type_chksum
 type land_ice_atmos_boundary_type
    ! variables of this type are declared by coupler_main, allocated by flux_exchange_init.
 !quantities going from land+ice to atmos
-   real, dimension(:,:),   pointer :: t              =>NULL() ! surface temperature for radiation calculations
-   real, dimension(:,:),   pointer :: albedo         =>NULL() ! surface albedo for radiation calculations
-   real, dimension(:,:),   pointer :: albedo_vis_dir =>NULL()
-   real, dimension(:,:),   pointer :: albedo_nir_dir =>NULL()
-   real, dimension(:,:),   pointer :: albedo_vis_dif =>NULL()
-   real, dimension(:,:),   pointer :: albedo_nir_dif =>NULL()
-   real, dimension(:,:),   pointer :: land_frac      =>NULL() ! fraction amount of land in a grid box 
-   real, dimension(:,:),   pointer :: dt_t           =>NULL() ! temperature tendency at the lowest level
-   real, dimension(:,:,:), pointer :: dt_tr          =>NULL() ! tracer tendency at the lowest level
-   real, dimension(:,:),   pointer :: u_flux         =>NULL() ! zonal wind stress
-   real, dimension(:,:),   pointer :: v_flux         =>NULL() ! meridional wind stress
-   real, dimension(:,:),   pointer :: dtaudu         =>NULL() ! derivative of zonal wind stress w.r.t. the lowest zonal level wind speed
-   real, dimension(:,:),   pointer :: dtaudv         =>NULL() ! derivative of meridional wind stress w.r.t. the lowest meridional level wind speed
-   real, dimension(:,:),   pointer :: u_star         =>NULL() ! friction velocity
-   real, dimension(:,:),   pointer :: b_star         =>NULL() ! bouyancy scale
-   real, dimension(:,:),   pointer :: q_star         =>NULL() ! moisture scale
-   real, dimension(:,:),   pointer :: rough_mom      =>NULL() ! surface roughness (used for momentum)
-   real, dimension(:,:,:), pointer :: data           =>NULL() !collective field for "named" fields above
+   real, dimension(:,:),   pointer :: t              =>null() ! surface temperature for radiation calculations
+   real, dimension(:,:),   pointer :: albedo         =>null() ! surface albedo for radiation calculations
+   real, dimension(:,:),   pointer :: albedo_vis_dir =>null()
+   real, dimension(:,:),   pointer :: albedo_nir_dir =>null()
+   real, dimension(:,:),   pointer :: albedo_vis_dif =>null()
+   real, dimension(:,:),   pointer :: albedo_nir_dif =>null()
+   real, dimension(:,:),   pointer :: land_frac      =>null() ! fraction amount of land in a grid box 
+   real, dimension(:,:),   pointer :: dt_t           =>null() ! temperature tendency at the lowest level
+   real, dimension(:,:,:), pointer :: dt_tr          =>null() ! tracer tendency at the lowest level
+   real, dimension(:,:),   pointer :: u_flux         =>null() ! zonal wind stress
+   real, dimension(:,:),   pointer :: v_flux         =>null() ! meridional wind stress
+   real, dimension(:,:),   pointer :: dtaudu         =>null() ! derivative of zonal wind stress w.r.t. the lowest zonal level wind speed
+   real, dimension(:,:),   pointer :: dtaudv         =>null() ! derivative of meridional wind stress w.r.t. the lowest meridional level wind speed
+   real, dimension(:,:),   pointer :: u_star         =>null() ! friction velocity
+   real, dimension(:,:),   pointer :: b_star         =>null() ! bouyancy scale
+   real, dimension(:,:),   pointer :: q_star         =>null() ! moisture scale
+   real, dimension(:,:),   pointer :: rough_mom      =>null() ! surface roughness (used for momentum)
+   real, dimension(:,:,:), pointer :: data           =>null() !collective field for "named" fields above
    integer                         :: xtype                   !REGRID, REDIST or DIRECT
 end type land_ice_atmos_boundary_type
 !</PUBLICTYPE >
 
 !<PUBLICTYPE >
 type :: land_atmos_boundary_type
-   real, dimension(:,:), pointer :: data =>NULL() ! quantities going from land alone to atmos (none at present)
+   real, dimension(:,:), pointer :: data =>null() ! quantities going from land alone to atmos (none at present)
 end type land_atmos_boundary_type
 !</PUBLICTYPE >
 
 !<PUBLICTYPE >
 !quantities going from ice alone to atmos (none at present)
 type :: ice_atmos_boundary_type
-   real, dimension(:,:), pointer :: data =>NULL() ! quantities going from ice alone to atmos (none at present)
+   real, dimension(:,:), pointer :: data =>null() ! quantities going from ice alone to atmos (none at present)
 end type ice_atmos_boundary_type
 !</PUBLICTYPE >
 
@@ -165,14 +170,14 @@ integer :: atmClock
 
 !for restart
 integer                 :: ipts, jpts, dto
-type(restart_file_type), pointer, save :: Atm_restart => NULL()
-type(restart_file_type), pointer, save :: Til_restart => NULL()
+type(restart_file_type), pointer, save :: Atm_restart => null()
+type(restart_file_type), pointer, save :: Til_restart => null()
 logical                                :: in_different_file = .false.
 
 !-----------------------------------------------------------------------
 
-character(len=128) :: version = '$Id: atmos_model.F90,v 18.0.2.2.2.1 2010/08/16 15:06:19 z1l Exp $'
-character(len=128) :: tagname = '$Name: riga_201012 $'
+character(len=128) :: version = '$Id: atmos_model.F90,v 18.0.2.2.2.1.2.1 2010/12/06 18:15:35 sdu Exp $'
+character(len=128) :: tagname = '$Name: riga_201104 $'
 
 integer :: ivapor = NO_TRACER ! index of water vapor tracer
 
@@ -385,7 +390,11 @@ type (time_type), intent(in) :: Time_init, Time, Time_step
    Atmos % Time_step = Time_step
    logunit = stdlog()
 
-   if ( file_exist('input.nml')) then
+   IF ( file_exist('input.nml')) THEN
+#ifdef INTERNAL_FILE_NML
+      read(input_nml_file, nml=atmos_model_nml, iostat=io)
+      ierr = check_nml_error(io, 'atmos_model_nml')
+#else
       unit = open_namelist_file ( )
       ierr=1
       do while (ierr /= 0)
@@ -393,6 +402,7 @@ type (time_type), intent(in) :: Time_init, Time, Time_step
          ierr = check_nml_error(io,'atmos_model_nml')
       enddo
  10     call close_file (unit)
+#endif
    endif
    call get_restart_io_mode(do_netcdf_restart)
 
@@ -791,8 +801,8 @@ type(atmos_data_type), intent(in) :: atm
     integer         , intent(in) :: timestep
     integer :: n, outunit
 
-100 FORMAT("CHECKSUM::",A32," = ",Z20)
-101 FORMAT("CHECKSUM::",A16,a,'%',a," = ",Z20)
+100 format("CHECKSUM::",A32," = ",Z20)
+101 format("CHECKSUM::",A16,a,'%',a," = ",Z20)
 
   outunit = stdout()
   write(outunit,*) 'BEGIN CHECKSUM(Atmos_data_type):: ', id, timestep
@@ -867,7 +877,7 @@ subroutine lnd_ice_atm_bnd_type_chksum(id, timestep, bnd_type)
 
     outunit = stdout()
     write(outunit,*) 'BEGIN CHECKSUM(lnd_ice_Atm_bnd_type):: ', id, timestep
-100 FORMAT("CHECKSUM::",A32," = ",Z20)
+100 format("CHECKSUM::",A32," = ",Z20)
     write(outunit,100) 'lnd_ice_atm_bnd_type%t             ',mpp_chksum(bnd_type%t              )
     write(outunit,100) 'lnd_ice_atm_bnd_type%albedo        ',mpp_chksum(bnd_type%albedo         )
     write(outunit,100) 'lnd_ice_atm_bnd_type%albedo_vis_dir',mpp_chksum(bnd_type%albedo_vis_dir )
@@ -934,7 +944,7 @@ subroutine lnd_atm_bnd_type_chksum(id, timestep, bnd_type)
     write(outunit,*) 'BEGIN CHECKSUM(lnd_atmos_boundary_type):: ', id, timestep
 !    write(outunit,100) 'lnd_atm_bnd_type%data',mpp_chksum(bnd_type%data)
 
-100 FORMAT("CHECKSUM::",A32," = ",Z20)
+100 format("CHECKSUM::",A32," = ",Z20)
 
 end subroutine lnd_atm_bnd_type_chksum
 ! </SUBROUTINE>
@@ -981,7 +991,7 @@ subroutine ice_atm_bnd_type_chksum(id, timestep, bnd_type)
     write(outunit,*) 'BEGIN CHECKSUM(ice_atmos_boundary_type):: ', id, timestep
 !    write(outunit,100) 'ice_atm_bnd_type%data',mpp_chksum(data_type%data)
 
-100 FORMAT("CHECKSUM::",A32," = ",Z20)
+100 format("CHECKSUM::",A32," = ",Z20)
 
 
 end subroutine ice_atm_bnd_type_chksum
