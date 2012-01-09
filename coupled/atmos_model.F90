@@ -147,6 +147,7 @@ type land_ice_atmos_boundary_type
    real, dimension(:,:),   pointer :: b_star         =>null() ! bouyancy scale
    real, dimension(:,:),   pointer :: q_star         =>null() ! moisture scale
    real, dimension(:,:),   pointer :: rough_mom      =>null() ! surface roughness (used for momentum)
+   real, dimension(:,:),   pointer :: frac_open_sea  =>null() ! non-seaice fraction (%)
    real, dimension(:,:,:), pointer :: data           =>null() !collective field for "named" fields above
    integer                         :: xtype                   !REGRID, REDIST or DIRECT
 end type land_ice_atmos_boundary_type
@@ -176,8 +177,8 @@ logical                                :: in_different_file = .false.
 
 !-----------------------------------------------------------------------
 
-character(len=128) :: version = '$Id: atmos_model.F90,v 18.0.2.2.2.1.2.1 2010/12/06 18:15:35 sdu Exp $'
-character(len=128) :: tagname = '$Name: riga_201104 $'
+character(len=128) :: version = '$Id: atmos_model.F90,v 19.0 2012/01/06 20:00:03 fms Exp $'
+character(len=128) :: tagname = '$Name: siena $'
 
 integer :: ivapor = NO_TRACER ! index of water vapor tracer
 
@@ -244,6 +245,7 @@ subroutine update_atmos_model_down( Surface_boundary, Atmos )
                           Surface_boundary%dtaudv,      &
                           Surface_boundary%u_flux,      &
                           Surface_boundary%v_flux,      &
+                          Surface_boundary%frac_open_sea, &
                           Atmos%gust,                   &
                           Atmos%coszen,                 &
                           Atmos%flux_sw,                &

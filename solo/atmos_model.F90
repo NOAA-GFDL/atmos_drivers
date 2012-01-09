@@ -22,7 +22,7 @@ use time_manager_mod, only: time_type, set_time, get_time,  &
 use          fms_mod, only: file_exist, check_nml_error,                &
                             error_mesg, FATAL, WARNING,                 &
                             mpp_pe, mpp_root_pe, fms_init, fms_end,     &
-                            stdlog, write_version_number,               &
+                            stdlog, stdout, write_version_number,       &
                             open_restart_file,                          &
                             mpp_clock_id, mpp_clock_begin,              &
                             mpp_clock_end, CLOCK_COMPONENT, set_domain, nullify_domain
@@ -44,10 +44,10 @@ implicit none
 !-----------------------------------------------------------------------
 
 character(len=128), parameter :: version = &
-'$Id: atmos_model.F90,v 17.0.2.1 2010/09/03 12:59:12 pjp Exp $'
+'$Id: atmos_model.F90,v 19.0 2012/01/06 20:00:05 fms Exp $'
 
 character(len=128), parameter :: tag = &
-'$Name: riga_201104 $'
+'$Name: siena $'
 
 !-----------------------------------------------------------------------
 !       ----- model time -----
@@ -76,9 +76,10 @@ character(len=128), parameter :: tag = &
       integer :: days=0, hours=0, minutes=0, seconds=0
       integer :: dt_atmos = 0
       integer :: memuse_interval = 72
+      integer :: atmos_nthreads = 1
 
       namelist /main_nml/ current_time, dt_atmos,  &
-                          days, hours, minutes, seconds, memuse_interval
+                          days, hours, minutes, seconds, memuse_interval, atmos_nthreads
 
 !#######################################################################
 
@@ -117,16 +118,19 @@ contains
    subroutine atmos_model_init
 
 !-----------------------------------------------------------------------
-    integer :: unit, ierr, io
+    integer :: unit, ierr, io, logunit
     integer :: ntrace, ntprog, ntdiag, ntfamily
     integer :: date(6)
     type (time_type) :: Run_length
+    integer :: omp_get_thread_num, get_cpu_affinity, base_cpu
 !-----------------------------------------------------------------------
 !----- initialization timing identifiers ----
 
  id_init = mpp_clock_id ('MAIN: initialization', grain=CLOCK_COMPONENT)
  id_loop = mpp_clock_id ('MAIN: time loop'     , grain=CLOCK_COMPONENT)
  id_end  = mpp_clock_id ('MAIN: termination'   , grain=CLOCK_COMPONENT)
+
+ logunit = stdlog()
 
  call mpp_clock_begin (id_init)
 
@@ -153,7 +157,7 @@ contains
 !----- write namelist to logfile -----
 
    call write_version_number (version,tag)
-   if ( mpp_pe() == mpp_root_pe() ) write (stdlog(), nml=main_nml)
+   if ( mpp_pe() == mpp_root_pe() ) write (logunit, nml=main_nml)
 
    if (dt_atmos == 0) then
      call error_mesg ('program atmos_model', 'dt_atmos has not been specified', FATAL)
@@ -174,16 +178,16 @@ contains
 !----- write current/initial date actually used to logfile file -----
 
     if ( mpp_pe() == mpp_root_pe() ) then
-      write (stdlog(),16) date(3:6)
+      write (logunit,16) date(3:6)
     endif
 
  16 format ('  current time used = day',i5,' hour',i3,2(':',i2.2)) 
 
 !  print number of tracers to logfile
    if (mpp_pe() == mpp_root_pe()) then
-        write (stdlog(), '(a,i3)') 'Number of tracers =', ntrace
-        write (stdlog(), '(a,i3)') 'Number of prognostic tracers =', ntprog
-        write (stdlog(), '(a,i3)') 'Number of diagnostic tracers =', ntdiag
+        write (logunit, '(a,i3)') 'Number of tracers =', ntrace
+        write (logunit, '(a,i3)') 'Number of prognostic tracers =', ntprog
+        write (logunit, '(a,i3)') 'Number of diagnostic tracers =', ntdiag
    endif
 
 !-----------------------------------------------------------------------
@@ -261,6 +265,21 @@ contains
    
 !-----------------------------------------------------------------------
 !------ initialize atmospheric model ------
+
+      call omp_set_num_threads(atmos_nthreads)
+      if (mpp_pe() .eq. mpp_root_pe()) then
+        unit=stdout()
+        write(unit,*) ' starting ',atmos_nthreads,' OpenMP threads per MPI-task'
+        call flush(unit)
+      endif
+      base_cpu = get_cpu_affinity()
+!$OMP PARALLEL
+      call set_cpu_affinity(base_cpu + omp_get_thread_num())
+#ifdef DEBUG
+      write(6,*) 'PE: ',mpp_pe(),'  thread_num', omp_get_thread_num(),'  affinity:',get_cpu_affinity()
+      call flush(6) 
+#endif
+!$OMP END PARALLEL
 
       call atmosphere_init (Time_init, Time, Time_step_atmos)
       call atmosphere_domain(atmos_domain)
