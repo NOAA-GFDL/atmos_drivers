@@ -28,6 +28,7 @@ use          fms_mod, only: file_exist, check_nml_error,                &
                             mpp_clock_end, CLOCK_COMPONENT, set_domain, nullify_domain
 use       fms_io_mod, only: fms_io_exit
 
+use  mpp_mod,         only: mpp_set_current_pelist
 use  mpp_domains_mod, only: domain2d
 use       mpp_io_mod, only: mpp_open, mpp_close, MPP_ASCII, MPP_OVERWR, &
                             MPP_SEQUENTIAL, MPP_SINGLE, MPP_RDONLY, MPP_DELETE
@@ -44,10 +45,10 @@ implicit none
 !-----------------------------------------------------------------------
 
 character(len=128), parameter :: version = &
-'$Id: atmos_model.F90,v 17.0.2.1.2.1.4.1 2011/10/26 16:33:32 Zhi.Liang Exp $'
+'$Id: atmos_model.F90,v 17.0.2.1.2.1.4.1.4.1 2012/05/16 13:35:00 z1l Exp $'
 
 character(len=128), parameter :: tag = &
-'$Name: siena_201204 $'
+'$Name: siena_201207 $'
 
 !-----------------------------------------------------------------------
 !       ----- model time -----
@@ -286,7 +287,7 @@ contains
 
 !-----------------------------------------------------------------------
 !   open and close dummy file in restart dir to check if dir exists
-
+      call mpp_set_current_pelist()
       call mpp_open  (unit, 'RESTART/file' )
       call mpp_close (unit, action=MPP_DELETE)
 
