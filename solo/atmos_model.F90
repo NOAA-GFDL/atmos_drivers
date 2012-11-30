@@ -48,7 +48,7 @@ character(len=128), parameter :: version = &
 '$Id: atmos_model.F90,v 17.0.2.1.2.1.4.1.4.1 2012/05/16 13:35:00 z1l Exp $'
 
 character(len=128), parameter :: tag = &
-'$Name: siena_201207 $'
+'$Name: siena_201211 $'
 
 !-----------------------------------------------------------------------
 !       ----- model time -----
