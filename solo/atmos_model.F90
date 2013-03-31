@@ -45,10 +45,10 @@ implicit none
 !-----------------------------------------------------------------------
 
 character(len=128), parameter :: version = &
-'$Id: atmos_model.F90,v 17.0.2.1.2.1.4.1.4.1 2012/05/16 13:35:00 z1l Exp $'
+'$Id: atmos_model.F90,v 17.0.2.1.2.1.4.1.4.1.2.1 2012/10/18 20:34:20 Rusty.Benson Exp $'
 
 character(len=128), parameter :: tag = &
-'$Name: siena_201211 $'
+'$Name: siena_201303 $'
 
 !-----------------------------------------------------------------------
 !       ----- model time -----
@@ -123,7 +123,8 @@ contains
     integer :: ntrace, ntprog, ntdiag, ntfamily
     integer :: date(6)
     type (time_type) :: Run_length
-    integer :: omp_get_thread_num, get_cpu_affinity, base_cpu
+!$    integer :: omp_get_thread_num
+    integer :: get_cpu_affinity, base_cpu
 !-----------------------------------------------------------------------
 !----- initialization timing identifiers ----
 
@@ -267,7 +268,7 @@ contains
 !-----------------------------------------------------------------------
 !------ initialize atmospheric model ------
 
-      call omp_set_num_threads(atmos_nthreads)
+!$      call omp_set_num_threads(atmos_nthreads)
       if (mpp_pe() .eq. mpp_root_pe()) then
         unit=stdout()
         write(unit,*) ' starting ',atmos_nthreads,' OpenMP threads per MPI-task'
@@ -275,10 +276,10 @@ contains
       endif
       base_cpu = get_cpu_affinity()
 !$OMP PARALLEL
-      call set_cpu_affinity(base_cpu + omp_get_thread_num())
+!$      call set_cpu_affinity(base_cpu + omp_get_thread_num())
 #ifdef DEBUG
-      write(6,*) 'PE: ',mpp_pe(),'  thread_num', omp_get_thread_num(),'  affinity:',get_cpu_affinity()
-      call flush(6) 
+!$      write(6,*) 'PE: ',mpp_pe(),'  thread_num', omp_get_thread_num(),'  affinity:',get_cpu_affinity()
+!$      call flush(6) 
 #endif
 !$OMP END PARALLEL
 
