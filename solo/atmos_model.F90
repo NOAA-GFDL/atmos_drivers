@@ -45,10 +45,10 @@ implicit none
 !-----------------------------------------------------------------------
 
 character(len=128), parameter :: version = &
-'$Id: atmos_model.F90,v 17.0.2.1.2.1.4.1.4.1.2.1 2012/10/18 20:34:20 Rusty.Benson Exp $'
+'$Id: atmos_model.F90,v 20.0 2013/12/13 23:08:08 fms Exp $'
 
 character(len=128), parameter :: tag = &
-'$Name: siena_201309 $'
+'$Name: tikal $'
 
 !-----------------------------------------------------------------------
 !       ----- model time -----
