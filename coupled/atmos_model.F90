@@ -28,7 +28,7 @@ module atmos_model_mod
 
 !</DESCRIPTION>
 
-use mpp_mod,            only: mpp_pe, mpp_root_pe, mpp_clock_id, mpp_clock_begin
+use mpp_mod,            only: mpp_pe, mpp_root_pe, mpp_clock_id, mpp_clock_begin, mpp_set_current_pelist
 use mpp_mod,            only: mpp_clock_end, CLOCK_COMPONENT, mpp_error, mpp_chksum
 use mpp_domains_mod,    only: domain2d
 #ifdef INTERNAL_FILE_NML
@@ -131,6 +131,8 @@ type land_ice_atmos_boundary_type
    ! variables of this type are declared by coupler_main, allocated by flux_exchange_init.
 !quantities going from land+ice to atmos
    real, dimension(:,:),   pointer :: t              =>null() ! surface temperature for radiation calculations
+   real, dimension(:,:),   pointer :: t_ref          =>null() ! surface air temperature (cjg: PBL depth mods)
+   real, dimension(:,:),   pointer :: q_ref          =>null() ! surface air specific humidity (cjg: PBL depth mods)
    real, dimension(:,:),   pointer :: albedo         =>null() ! surface albedo for radiation calculations
    real, dimension(:,:),   pointer :: albedo_vis_dir =>null()
    real, dimension(:,:),   pointer :: albedo_nir_dir =>null()
@@ -177,8 +179,8 @@ logical                                :: in_different_file = .false.
 
 !-----------------------------------------------------------------------
 
-character(len=128) :: version = '$Id: atmos_model.F90,v 20.0 2013/12/13 23:08:05 fms Exp $'
-character(len=128) :: tagname = '$Name: tikal_201403 $'
+character(len=128) :: version = '$Id: atmos_model.F90,v 20.0.2.1.2.2 2014/06/18 02:15:54 Rusty.Benson Exp $'
+character(len=128) :: tagname = '$Name: tikal_201409 $'
 
 integer :: ivapor = NO_TRACER ! index of water vapor tracer
 
@@ -232,7 +234,10 @@ subroutine update_atmos_model_down( Surface_boundary, Atmos )
   call mpp_clock_begin(atmClock)
 
     call atmosphere_down (Atmos%Time, Surface_boundary%land_frac,        &
-                          Surface_boundary%t,  Surface_boundary%albedo,  &
+                          Surface_boundary%t,       &
+                          Surface_boundary%t_ref,   &  ! cjg: PBL depth mods
+                          Surface_boundary%q_ref,   &  ! cjg: PBL depth mods
+                          Surface_boundary%albedo,  &
                           Surface_boundary%albedo_vis_dir,   &
                           Surface_boundary%albedo_nir_dir,   &
                           Surface_boundary%albedo_vis_dif,   &
@@ -593,6 +598,7 @@ type (time_type), intent(in) :: Time_init, Time, Time_step
 
 !------ initialize global integral package ------
 !**** TEMPORARY FIX FOR GRID CELL CORNER PROBLEM ****
+call mpp_set_current_pelist(Atmos%pelist)
 
     allocate (area (nlon, nlat))
 ! call atmosphere_cell_area to obtain array of grid cell areas needed
@@ -604,7 +610,8 @@ type (time_type), intent(in) :: Time_init, Time, Time_step
     deallocate (area)
 
 !-----------------------------------------------------------------------
-atmClock = mpp_clock_id( 'Atmosphere', flags=clock_flag_default, grain=CLOCK_COMPONENT )
+   atmClock = mpp_clock_id( 'Atmosphere', flags=clock_flag_default, grain=CLOCK_COMPONENT )
+
 end subroutine atmos_model_init
 ! </SUBROUTINE>
 
