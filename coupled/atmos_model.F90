@@ -179,8 +179,8 @@ logical                                :: in_different_file = .false.
 
 !-----------------------------------------------------------------------
 
-character(len=128) :: version = '$Id: atmos_model.F90,v 20.0.2.1.2.2 2014/06/18 02:15:54 Rusty.Benson Exp $'
-character(len=128) :: tagname = '$Name: tikal_201409 $'
+character(len=128) :: version = '$Id$'
+character(len=128) :: tagname = '$Name$'
 
 integer :: ivapor = NO_TRACER ! index of water vapor tracer
 
