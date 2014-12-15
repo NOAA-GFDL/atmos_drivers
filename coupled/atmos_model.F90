@@ -28,8 +28,9 @@ module atmos_model_mod
 
 !</DESCRIPTION>
 
-use mpp_mod,            only: mpp_pe, mpp_root_pe, mpp_clock_id, mpp_clock_begin, mpp_set_current_pelist
+use mpp_mod,            only: mpp_pe, mpp_root_pe, mpp_clock_id, mpp_clock_begin
 use mpp_mod,            only: mpp_clock_end, CLOCK_COMPONENT, mpp_error, mpp_chksum
+use mpp_mod,            only: mpp_set_current_pelist
 use mpp_domains_mod,    only: domain2d
 #ifdef INTERNAL_FILE_NML
 use mpp_mod,            only: input_nml_file
@@ -43,29 +44,68 @@ use fms_mod,            only: open_restart_file, check_nml_error
 use fms_io_mod,         only: get_restart_io_mode
 use fms_io_mod,         only: restart_file_type, register_restart_field
 use fms_io_mod,         only: save_restart, restore_state, get_mosaic_tile_file
-use time_manager_mod,   only: time_type, operator(+), get_time
+use time_manager_mod,   only: time_type, operator(+), get_time, operator(-)
 use field_manager_mod,  only: MODEL_ATMOS
 use tracer_manager_mod, only: get_number_tracers, get_tracer_index, NO_TRACER
+use data_override_mod,  only: data_override_init
+use diag_manager_mod,   only: diag_send_complete
 use diag_integral_mod,  only: diag_integral_init, diag_integral_end
 use diag_integral_mod,  only: diag_integral_output
-use atmosphere_mod,     only: atmosphere_cell_area
 use xgrid_mod,          only: grid_box_type
-use atmosphere_mod,     only: atmosphere_up, atmosphere_down, atmosphere_init
+use atmosphere_mod,     only: atmosphere_init
 use atmosphere_mod,     only: atmosphere_end, get_bottom_mass, get_bottom_wind
 use atmosphere_mod,     only: atmosphere_resolution, atmosphere_domain
-use atmosphere_mod,     only: atmosphere_boundary, get_atmosphere_axes
+use atmosphere_mod,     only: atmosphere_boundary, atmosphere_grid_center
+use atmosphere_mod,     only: atmosphere_dynamics, get_atmosphere_axes
 use atmosphere_mod,     only: get_stock_pe
-use atmosphere_mod,     only: surf_diff_type
+use atmosphere_mod,     only: set_atmosphere_pelist
 use atmosphere_mod,     only: atmosphere_restart
+use atmosphere_mod,     only: atmosphere_cell_area
+use atmosphere_mod,     only: atmosphere_state_update
+use atmosphere_mod,     only: atmos_radiation_driver_inputs, atmos_physics_driver_inputs
+use atmosphere_mod,     only: atmosphere_control_data, atmosphere_pref
+use atmosphere_mod,     only: reset_atmos_tracers
 use coupler_types_mod,  only: coupler_2d_bc_type
-
+use aerosol_mod,        only: aerosol_time_vary, aerosol_endts
+use physics_types_mod,  only: physics_tendency_type, physics_type, alloc_physics_type, dealloc_physics_type
+use block_control_mod,  only: block_control_type, define_blocks
+use radiation_types_mod,only: radiation_type, &
+                              alloc_radiation_type, &
+                              dealloc_radiation_type
+use physics_radiation_exch_mod,only: exchange_control_type, &
+                                     exch_rad_phys_state, &
+                                     clouds_from_moist_type, &
+                                     dealloc_clouds_from_moist_type, &
+                                     dealloc_radiation_flux_type, &
+                                     radiation_flux_type, &
+                                     alloc_radiation_flux_type, &
+                                     cosp_from_rad_type, &
+                                     alloc_cosp_from_rad_type, &
+                                     dealloc_cosp_from_rad_type
+use radiation_driver_mod,only: radiation_block_init, radiation_block_time_vary, &
+                               radiation_block, radiation_block_endts, &
+                               radiation_block_restart, radiation_block_end
+use physics_driver_mod, only: surf_diff_type, &
+                              cosp_driver_init, &
+                              set_cosp_precip_sources, &
+                              physics_driver_init, & 
+                              physics_driver_restart, &
+                              physics_driver_end, &
+                              physics_driver_down_time_vary, &
+                              physics_driver_down, & 
+                              physics_driver_down_endts, &
+                              physics_driver_up_time_vary, &
+                              physics_driver_up, & 
+                              physics_driver_up_endts
 
 !-----------------------------------------------------------------------
 
 implicit none
 private
 
-public update_atmos_model_down, update_atmos_model_up
+public update_atmos_model_down, update_atmos_model_up, update_atmos_model_radiation
+public update_atmos_model_state
+public update_atmos_model_dynamics
 public atmos_model_init, atmos_model_end, atmos_data_type
 public land_ice_atmos_boundary_type, land_atmos_boundary_type
 public atm_stock_pe
@@ -83,8 +123,10 @@ public ice_atm_bnd_type_chksum
                                                          ! (they correspond to the x, y, pfull, phalf axes)
      real, pointer, dimension(:,:) :: lon_bnd  => null() ! local longitude axis grid box corners in radians.
      real, pointer, dimension(:,:) :: lat_bnd  => null() ! local latitude axis grid box corners in radians.
+     real, pointer, dimension(:,:) :: lon      => null() ! local longitude axis grid box centers in radians.
+     real, pointer, dimension(:,:) :: lat      => null() ! local latitude axis grid box centers in radians.
      real, pointer, dimension(:,:) :: t_bot    => null() ! temperature at lowest model level
-     real, pointer, dimension(:,:,:) :: tr_bot   => null() ! tracers at lowest model level
+     real, pointer, dimension(:,:,:) :: tr_bot => null() ! tracers at lowest model level
      real, pointer, dimension(:,:) :: z_bot    => null() ! height above the surface for the lowest model level
      real, pointer, dimension(:,:) :: p_bot    => null() ! pressure at lowest model level
      real, pointer, dimension(:,:) :: u_bot    => null() ! zonal wind component at lowest model level
@@ -169,7 +211,7 @@ end type ice_atmos_boundary_type
 !</PUBLICTYPE >
 
 !Balaji
-integer :: atmClock
+integer :: atmClock, radClock
 
 !for restart
 integer                 :: ipts, jpts, dto
@@ -179,19 +221,156 @@ logical                                :: in_different_file = .false.
 
 !-----------------------------------------------------------------------
 
-character(len=128) :: version = '$Id: atmos_model.F90,v 20.0.2.1.2.2 2014/06/18 02:15:54 Rusty.Benson Exp $'
-character(len=128) :: tagname = '$Name: tikal_201409 $'
+character(len=128) :: version = '$Id$'
+character(len=128) :: tagname = '$Name$'
 
 integer :: ivapor = NO_TRACER ! index of water vapor tracer
 
 !-----------------------------------------------------------------------
 character(len=80) :: restart_format = 'atmos_coupled_mod restart format 01'
 !-----------------------------------------------------------------------
-logical           :: do_netcdf_restart = .true.
-logical           :: restart_tbot_qbot = .false.
-namelist /atmos_model_nml/ do_netcdf_restart, restart_tbot_qbot  
+logical :: do_netcdf_restart = .true.
+logical :: restart_tbot_qbot = .false.
+integer :: nxblocks = 1
+integer :: nyblocks = 1
+namelist /atmos_model_nml/ do_netcdf_restart, restart_tbot_qbot, nxblocks, nyblocks
+
+!--- concurrent and decoupled radiation and physics variables
+type (clouds_from_moist_type), dimension(:), allocatable :: Moist_clouds
+type (cosp_from_rad_type),     dimension(:), allocatable :: Cosp_rad
+type (radiation_flux_type),    dimension(:), allocatable :: Rad_flux
+type (block_control_type)    :: Atm_block
+type (exchange_control_type) :: Exch_ctrl
+type (radiation_type)        :: Radiation
+type (physics_type)          :: Physics
+type (physics_tendency_type) :: Physics_tendency
+logical :: do_concurrent_radiation = .false.
+integer :: ntrace, ntprog
 
 contains
+
+!#######################################################################
+! <SUBROUTINE NAME="update_atmos_model_radiation">
+!
+! <OVERVIEW>
+!   compute the atmospheric tendencies for dynamics, radiation, 
+!   vertical diffusion of momentum, tracers, and heat/moisture.
+! </OVERVIEW>
+!
+!<DESCRIPTION>
+!   Called every time step as the atmospheric driver to compute the
+!   atmospheric tendencies for dynamics, radiation, vertical diffusion of
+!   momentum, tracers, and heat/moisture.  For heat/moisture only the
+!   downward sweep of the tridiagonal elimination is performed, hence
+!   the name "_down". 
+!</DESCRIPTION>
+
+!   <TEMPLATE>
+!     call  update_atmos_model_radiation( Surface_boundary, Atmos)
+!   </TEMPLATE>
+
+! <IN NAME = "Surface_boundary" TYPE="type(land_ice_atmos_boundary_type)">
+!   Derived-type variable that contains quantities going from land+ice to atmos.  
+! </IN>
+
+! <INOUT NAME="Atmos" TYPE="type(atmos_data_type)">
+!   Derived-type variable that contains fields needed by the flux exchange module.
+!   These fields describe the atmospheric grid and are needed to
+!   compute/exchange fluxes with other component models.  All fields in this
+!   variable type are allocated for the global grid (without halo regions).
+! </INOUT>
+
+subroutine update_atmos_model_radiation( Surface_boundary, Atmos)
+!-----------------------------------------------------------------------
+  type(land_ice_atmos_boundary_type), intent(in) :: Surface_boundary
+  type (atmos_data_type), intent(in) :: Atmos
+!--- local variables---
+    type(time_type) :: Time_next, Time2
+    integer :: idx, blk
+    integer :: jsw, jew, isw, iew
+    integer :: isc, iec, jsc, jec, npz
+    integer :: is, ie, js, je
+    logical, save :: message = .true.
+
+    call set_atmosphere_pelist()
+
+!--- set index for flux levels 
+!--- idx=1 serial radiation
+!--- idx=2 concurrent radiation
+    idx = size(Rad_flux,1)
+
+    call mpp_clock_begin(radClock)
+    isc = Atm_block%isc
+    iec = Atm_block%iec
+    jsc = Atm_block%jsc
+    jec = Atm_block%jec
+    npz = Atm_block%npz
+
+!---- set up for concurrent radiation ----
+!----------------------------------------------------------------------
+! calculate p_full, z_full, p_half, and z_half
+!---------------------------------------------------------------------
+    if (.not. do_concurrent_radiation) & 
+        call atmos_radiation_driver_inputs (Atmos%Time, Radiation, Atm_block)
+
+!----------------------------------------------------------------------
+! call radiation_block_down_time_vary to do the time-dependent, spatially
+! independent calculations before entering blocks / threads loop.
+!---------------------------------------------------------------------
+    Time_next = Atmos%Time + Atmos%Time_step
+    if (do_concurrent_radiation) then
+       ! define rad time as next atmos time
+       Time2 = Time_next +  Atmos%Time_step
+       call radiation_block_time_vary (Time_next, Time2, Radiation%glbl_qty%gavg_q, &
+                                       Rad_flux(idx)%control)
+    else
+       call radiation_block_time_vary (Atmos%Time, Time_next, Radiation%glbl_qty%gavg_q, &
+                                       Rad_flux(idx)%control)
+    endif
+
+!$OMP parallel do default(shared) private(blk, isw, iew, jsw, jew, is, ie, js, je)
+    do blk = 1,nxblocks*nyblocks
+!--- indices for domain-based arrays ---
+       isw = Atm_block%ibs(blk)
+       jsw = Atm_block%jbs(blk)
+       iew = Atm_block%ibe(blk)
+       jew = Atm_block%jbe(blk)
+
+!--- indices for 1-based arrays ---
+       is = isw-isc+1
+       ie = iew-isc+1
+       js = jsw-jsc+1
+       je = jew-jsc+1
+
+       call radiation_block ( is, ie, js, je, npz, &
+                              Atmos%Time, Atmos%Time+Atmos%Time_step, &
+                              Atmos%lat (is:ie,js:je),   &
+                              Atmos%lon (is:ie,js:je),   &
+                              Radiation%control,      &
+                              Radiation%block(blk),   &
+                              Radiation%glbl_qty,     &
+                              Surface_boundary%land_frac     (isw:iew,jsw:jew),&
+                              Surface_boundary%albedo        (isw:iew,jsw:jew),&
+                              Surface_boundary%albedo_vis_dir(isw:iew,jsw:jew),&
+                              Surface_boundary%albedo_nir_dir(isw:iew,jsw:jew),&
+                              Surface_boundary%albedo_vis_dif(isw:iew,jsw:jew),&
+                              Surface_boundary%albedo_nir_dif(isw:iew,jsw:jew),&
+                              Surface_boundary%t             (isw:iew,jsw:jew),&
+                              Exch_ctrl,                &
+                              Rad_flux(idx)%block(blk), &
+                              Cosp_rad(idx)%control,    &
+                              Cosp_rad(idx)%block(blk), & 
+                              Moist_clouds(idx)%block(blk)  )
+
+    end do
+
+    call radiation_block_endts (1, 1)
+
+  call mpp_clock_end(radClock)
+  call mpp_set_current_pelist(Atmos%pelist, no_sync=.TRUE.)
+!-----------------------------------------------------------------------
+ end subroutine update_atmos_model_radiation
+! </SUBROUTINE>
 
 !#######################################################################
 ! <SUBROUTINE NAME="update_atmos_model_down">
@@ -229,46 +408,110 @@ subroutine update_atmos_model_down( Surface_boundary, Atmos )
 !-----------------------------------------------------------------------
   type(land_ice_atmos_boundary_type), intent(inout) :: Surface_boundary
   type (atmos_data_type), intent(inout) :: Atmos
-                                      
+!--- local variables ---
+    type(time_type) :: Time_prev, Time_next
+    real    :: dt 
+    integer :: sec, day
+    integer :: isw, iew, jsw, jew  ! block start/end in global index space ! just indices
+    integer :: isc, iec, jsc, jec, npz
+    integer :: is, ie, js, je
+    integer :: blk, ibs, ibe, jbs, jbe
+    logical, save :: message = .true.
 !-----------------------------------------------------------------------
-  call mpp_clock_begin(atmClock)
+    call set_atmosphere_pelist()
+    call mpp_clock_begin(atmClock)
 
-    call atmosphere_down (Atmos%Time, Surface_boundary%land_frac,        &
-                          Surface_boundary%t,       &
-                          Surface_boundary%t_ref,   &  ! cjg: PBL depth mods
-                          Surface_boundary%q_ref,   &  ! cjg: PBL depth mods
-                          Surface_boundary%albedo,  &
-                          Surface_boundary%albedo_vis_dir,   &
-                          Surface_boundary%albedo_nir_dir,   &
-                          Surface_boundary%albedo_vis_dif,   &
-                          Surface_boundary%albedo_nir_dif,   &
-                          Surface_boundary%rough_mom,   &
-                          Surface_boundary%u_star,      &
-                          Surface_boundary%b_star,      &
-                          Surface_boundary%q_star, &
-                          Surface_boundary%dtaudu,      &
-                          Surface_boundary%dtaudv,      &
-                          Surface_boundary%u_flux,      &
-                          Surface_boundary%v_flux,      &
-                          Surface_boundary%frac_open_sea, &
-                          Atmos%gust,                   &
-                          Atmos%coszen,                 &
-                          Atmos%flux_sw,                &
-                          Atmos%flux_sw_dir,            &
-                          Atmos%flux_sw_dif,            &
-                          Atmos%flux_sw_down_vis_dir,   &
-                          Atmos%flux_sw_down_vis_dif,   &
-                          Atmos%flux_sw_down_total_dir, &
-                          Atmos%flux_sw_down_total_dif, &
-                          Atmos%flux_sw_vis,            &
-                          Atmos%flux_sw_vis_dir,        &
-                          Atmos%flux_sw_vis_dif,        &
-                          Atmos%flux_lw,                &
-                          Atmos%Surf_diff               )
+    call atmos_physics_driver_inputs (Physics, Atm_block, Physics_tendency)
+
+!--- update heat tendency for serial radiation ---
+    if (.not. do_concurrent_radiation) then
+      do blk = 1,Atm_block%nblks
+        Physics_tendency%block(blk)%t_dt = Physics_tendency%block(blk)%t_dt + Rad_flux(1)%block(blk)%tdt_rad
+      enddo
+    endif
+
+!---------------------------------------------------------------------
+! call physics_driver_down_time_vary to do the time-dependent, spatially
+! independent calculations before entering blocks / threads loop. 
+!--------------------------------------------------------------------- 
+    Time_prev = Atmos%Time                       ! two time-level scheme
+    Time_next = Atmos%Time + Atmos%Time_step
+    call get_time (Time_next-Time_prev, sec, day)
+    dt = real(sec+day*86400)
+    call physics_driver_down_time_vary (Atmos%Time, Time_next, dt)
+
+!--- indices for domain-based arrays
+    isc = Atm_block%isc
+    iec = Atm_block%iec
+    jsc = Atm_block%jsc
+    jec = Atm_block%jec
+    npz = Atm_block%npz
+
+!$OMP parallel do default(shared) private(blk, isw, iew, jsw, jew, is, ie, js, je)
+    do blk = 1,nxblocks*nyblocks
+       isw = Atm_block%ibs(blk)
+       jsw = Atm_block%jbs(blk)
+       iew = Atm_block%ibe(blk)
+       jew = Atm_block%jbe(blk)
+
+!--- indices for one-based arrays
+       is = isw-isc+1
+       ie = iew-isc+1
+       js = jsw-jsc+1
+       je = jew-jsc+1
+       call physics_driver_down ( is, ie, js, je, npz, Time_prev, Atmos%Time, Time_next, &
+                                  Atmos%lat   (is:ie,js:je),   &
+                                  Atmos%lon   (is:ie,js:je),   &
+                                  Atmos%grid%area       (isw:iew,jsw:jew),    &
+                                  Physics%block(blk),   &
+                                  Surface_boundary%land_frac    (isw:iew,jsw:jew), &
+                                  Surface_boundary%rough_mom    (isw:iew,jsw:jew), &
+                                  Surface_boundary%frac_open_sea(isw:iew,jsw:jew), &
+                                  Surface_boundary%albedo       (isw:iew,jsw:jew), &
+                                  Surface_boundary%t            (isw:iew,jsw:jew), &
+                                  Surface_boundary%t_ref        (isw:iew,jsw:jew), &
+                                  Surface_boundary%q_ref        (isw:iew,jsw:jew), & ! cjg: PBL depth mods  
+                                  Surface_boundary%u_star       (isw:iew,jsw:jew), &
+                                  Surface_boundary%b_star       (isw:iew,jsw:jew), &
+                                  Surface_boundary%q_star       (isw:iew,jsw:jew), &
+                                  Surface_boundary%dtaudu       (isw:iew,jsw:jew), &
+                                  Surface_boundary%dtaudv       (isw:iew,jsw:jew), &
+                                  Surface_boundary%u_flux       (isw:iew,jsw:jew), &
+                                  Surface_boundary%v_flux       (isw:iew,jsw:jew), &
+                                  Physics_tendency%block(blk),   &
+                                  Atmos%Surf_diff, &
+                                  Atmos%gust(is:ie,js:je), &
+                                  Rad_flux(1)%control, &
+                                  Rad_flux(1)%block(blk) )
+    enddo
+
+    call physics_driver_down_endts (1, 1)
+
+!--- these fluxes are passed to fluxes in the land/ice
+  do blk = 1,nxblocks*nyblocks
+    ibs = Atm_block%ibs(blk)-Atm_block%isc+1
+    ibe = Atm_block%ibe(blk)-Atm_block%isc+1
+    jbs = Atm_block%jbs(blk)-Atm_block%jsc+1
+    jbe = Atm_block%jbe(blk)-Atm_block%jsc+1
+
+    Atmos%coszen(ibs:ibe,jbs:jbe)                 = Rad_flux(1)%block(blk)%coszen
+    Atmos%flux_sw(ibs:ibe,jbs:jbe)                = Rad_flux(1)%block(blk)%flux_sw
+    Atmos%flux_sw_dir(ibs:ibe,jbs:jbe)            = Rad_flux(1)%block(blk)%flux_sw_dir
+    Atmos%flux_sw_dif(ibs:ibe,jbs:jbe)            = Rad_flux(1)%block(blk)%flux_sw_dif
+    Atmos%flux_sw_down_vis_dir(ibs:ibe,jbs:jbe)   = Rad_flux(1)%block(blk)%flux_sw_down_vis_dir
+    Atmos%flux_sw_down_vis_dif(ibs:ibe,jbs:jbe)   = Rad_flux(1)%block(blk)%flux_sw_down_vis_dif
+    Atmos%flux_sw_down_total_dir(ibs:ibe,jbs:jbe) = Rad_flux(1)%block(blk)%flux_sw_down_total_dir
+    Atmos%flux_sw_down_total_dif(ibs:ibe,jbs:jbe) = Rad_flux(1)%block(blk)%flux_sw_down_total_dif
+    Atmos%flux_sw_vis(ibs:ibe,jbs:jbe)            = Rad_flux(1)%block(blk)%flux_sw_vis
+    Atmos%flux_sw_vis_dir(ibs:ibe,jbs:jbe)        = Rad_flux(1)%block(blk)%flux_sw_vis_dir
+    Atmos%flux_sw_vis_dif(ibs:ibe,jbs:jbe)        = Rad_flux(1)%block(blk)%flux_sw_vis_dif
+    Atmos%flux_lw(ibs:ibe,jbs:jbe)                = Rad_flux(1)%block(blk)%flux_lw
+  enddo
 
 !-----------------------------------------------------------------------
 
   call mpp_clock_end(atmClock)
+  call mpp_set_current_pelist(Atmos%pelist, no_sync=.TRUE.)
  end subroutine update_atmos_model_down
 ! </SUBROUTINE>
 
@@ -302,44 +545,83 @@ subroutine update_atmos_model_down( Surface_boundary, Atmos )
 !   variable type are allocated for the global grid (without halo regions).
 ! </INOUT>
 
- subroutine update_atmos_model_up( Surface_boundary, Atmos )
-
+subroutine update_atmos_model_up( Surface_boundary, Atmos)
 !-----------------------------------------------------------------------
 !-----------------------------------------------------------------------
-
-type(land_ice_atmos_boundary_type), intent(in) :: Surface_boundary
-type (atmos_data_type), intent(inout) :: Atmos
-                                      
+  type(land_ice_atmos_boundary_type), intent(in) :: Surface_boundary
+  type (atmos_data_type), intent(inout) :: Atmos
+!--- local variables ---
+    type(time_type) :: Time_prev, Time_next
+    real    :: dt
+    integer :: sec, day
+    integer :: isw, iew, jsw, jew ! block start/end in global index space (just indices)
+    integer :: isc, iec, jsc, jec, npz
+    integer :: is, ie, js, je
+    integer :: blk
+    character(len=132) :: text
+    logical, save :: message = .true.
 !-----------------------------------------------------------------------
-  call mpp_clock_begin(atmClock)
+    call set_atmosphere_pelist()
+    call mpp_clock_begin(atmClock)
 
-
-    Atmos%Surf_diff%delta_t = Surface_boundary%dt_t
+    Atmos%Surf_diff%delta_t  = Surface_boundary%dt_t
     Atmos%Surf_diff%delta_tr = Surface_boundary%dt_tr
 
-    call atmosphere_up (Atmos%Time,  Surface_boundary%land_frac, Atmos%Surf_diff, &
-                        Atmos%lprec, Atmos%fprec, Atmos%gust, &
-                        Surface_boundary%u_star, Surface_boundary%b_star, Surface_boundary%q_star)
+!----------------------------------------------------------------------
+! call physics_driver_up_time_vary to do the time-dependent, spatially
+! independent calculations before entering blocks / threads loop.
+!---------------------------------------------------------------------
+    Time_prev = Atmos%Time                       ! two time-level scheme
+    Time_next = Atmos%Time + Atmos%Time_step
+    call get_time (Time_next-Time_prev, sec, day)
+    dt = real(sec+day*86400)
+    call physics_driver_up_time_vary (Atmos%Time, Time_next, dt)
 
-!   --- advance time ---
+!--- indices for domain-based arrays
+    isc = Atm_block%isc
+    iec = Atm_block%iec
+    jsc = Atm_block%jsc
+    jec = Atm_block%jec
+    npz = Atm_block%npz
 
-    Atmos % Time = Atmos % Time + Atmos % Time_step
+!$OMP parallel do default(shared) private(blk, isw, iew, jsw, jew, is, ie, js, je)
+    do blk = 1,Atm_block%nblks
+       isw = Atm_block%ibs(blk)
+       jsw = Atm_block%jbs(blk)
+       iew = Atm_block%ibe(blk)
+       jew = Atm_block%jbe(blk)
 
+!--- indices for one-based arrays
+       is = isw-isc+1
+       ie = iew-isc+1
+       js = jsw-jsc+1
+       je = jew-jsc+1
+       call physics_driver_up ( is, ie, js, je, npz, &
+                                Time_prev, Atmos%Time, Time_next, &
+                                Atmos%lat (is:ie,js:je),   &
+                                Atmos%lon (is:ie,js:je),   &
+                                Atmos%grid%area (isw:iew,jsw:jew),     &
+                                Physics%control, &
+                                Physics%block(blk),   &
+                                Surface_boundary%land_frac(isw:iew,jsw:jew), &
+                                Surface_boundary%u_star   (isw:iew,jsw:jew), &
+                                Surface_boundary%b_star   (isw:iew,jsw:jew), &
+                                Surface_boundary%q_star   (isw:iew,jsw:jew), &
+                                Physics_tendency%block(blk),  &
+                                Moist_clouds(1)%block(blk), &
+                                Cosp_rad(1)%control, &
+                                Cosp_rad(1)%block(blk), &
+                                Exch_ctrl,  &
+                                Atmos%Surf_diff, &
+                                Atmos%lprec(is:ie,js:je), &
+                                Atmos%fprec(is:ie,js:je), &
+                                Atmos%gust (is:ie,js:je) )
+    enddo
 
-    call get_bottom_mass (Atmos % t_bot,  Atmos % tr_bot, &
-                          Atmos % p_bot,  Atmos % z_bot,  &
-                          Atmos % p_surf, Atmos % slp     )
+    call physics_driver_up_endts (1, 1)
 
-    call get_bottom_wind (Atmos % u_bot, Atmos % v_bot)
-
-
-!------ global integrals ------
-
-    call diag_integral_output (Atmos % Time)
-
-!-----------------------------------------------------------------------
   call mpp_clock_end(atmClock)
-
+  call mpp_set_current_pelist(Atmos%pelist, no_sync=.TRUE.)
 end subroutine update_atmos_model_up
 ! </SUBROUTINE>
 
@@ -356,7 +638,8 @@ end subroutine update_atmos_model_up
 ! </DESCRIPTION>
 
 ! <TEMPLATE>
-!     call atmos_model_init (Atmos, Time_init, Time, Time_step)
+!     call atmos_model_init (Atmos, Time_init, Time, Time_step, &
+!                             do_concurrent_radiation_in)
 ! </TEMPLATE>
 
 ! <IN NAME="Time_init" TYPE="type(time_type)" >
@@ -375,19 +658,27 @@ end subroutine update_atmos_model_up
 !   Derived-type variable that contains fields needed by the flux exchange module.
 ! </INOUT>
 
-subroutine atmos_model_init (Atmos, Time_init, Time, Time_step)
+subroutine atmos_model_init (Atmos, Time_init, Time, Time_step, &
+                             do_concurrent_radiation_in)
 
-
-type (atmos_data_type), intent(inout) :: Atmos
-type (time_type), intent(in) :: Time_init, Time, Time_step
-
-  integer :: unit, ntrace, ntprog, ntdiag, ntfamily, i, j
-  integer :: mlon, mlat, nlon, nlat, sec, day, dt
-  character(len=80) :: control
+  type (atmos_data_type), intent(inout) :: Atmos
+  type (time_type), intent(in) :: Time_init, Time, Time_step
+  logical, intent(in) :: do_concurrent_radiation_in
+!--- local variables ---
   real, dimension(:,:), allocatable :: area
+  integer :: unit, ntdiag, ntfamily, i, j, k
+  integer :: mlon, mlat, nlon, nlat, sec, day, dt
   integer :: ierr, io, logunit
+  integer :: id_restart, idx
+  integer :: isc, iec, jsc, jec, kpts
+  integer :: isd, ied, jsd, jed
+  integer :: blk, ibs, ibe, jbs, jbe
+  real, allocatable :: q(:,:,:,:), p_half(:,:,:)
+  character(len=80) :: control
   character(len=64) :: filename, filename2
-  integer           :: id_restart
+  character(len=132) :: text
+  logical :: p_hydro, hydro
+  logical, save :: block_message = .true.
 !-----------------------------------------------------------------------
 
 !---- set the atmospheric model time ------
@@ -396,6 +687,14 @@ type (time_type), intent(in) :: Time_init, Time, Time_step
    Atmos % Time      = Time
    Atmos % Time_step = Time_step
    logunit = stdlog()
+
+   do_concurrent_radiation = do_concurrent_radiation_in
+
+   idx = 1
+   if (do_concurrent_radiation) idx = 2
+   allocate (Rad_flux(idx), &
+             Cosp_rad(idx), &
+             Moist_clouds(idx))
 
    IF ( file_exist('input.nml')) THEN
 #ifdef INTERNAL_FILE_NML
@@ -425,68 +724,88 @@ type (time_type), intent(in) :: Time_init, Time, Time_step
         call error_mesg('atmos_model_init', 'Cannot find water vapor in ATM tracer table', FATAL)
 
 !-----------------------------------------------------------------------
-!  ----- initialize atmospheric model -----
+! initialize atmospheric model -----
 
+!---------- initialize atmospheric dynamics -------
     call atmosphere_init (Atmos%Time_init, Atmos%Time, Atmos%Time_step,&
-                          Atmos%Surf_diff, Atmos%grid )
-                           
+                          Atmos%Surf_diff, Atmos%grid)
+
 !-----------------------------------------------------------------------
 !---- allocate space ----
-
-    call atmosphere_resolution (mlon, mlat, global=.true.)
     call atmosphere_resolution (nlon, nlat, global=.false.)
-    call atmosphere_domain     (Atmos%domain)
+    call alloc_atmos_data_type (nlon, nlat, ntprog, Atmos)
+    call atmosphere_domain (Atmos%domain)
+    call get_atmosphere_axes (Atmos%axes)
+    call atmosphere_boundary (Atmos%lon_bnd, Atmos%lat_bnd, global=.false.)
+    call atmosphere_grid_center (Atmos%lon, Atmos%lat)
+    call atmosphere_control_data (isc, iec, jsc, jec, kpts, p_hydro, hydro)
 
-    allocate ( Atmos %  lon_bnd (nlon+1,nlat+1), &
-               Atmos %  lat_bnd (nlon+1,nlat+1), &
-               Atmos % t_bot    (nlon,nlat), &
-               Atmos % tr_bot    (nlon,nlat, ntprog), &
-               Atmos % z_bot    (nlon,nlat), &
-               Atmos % p_bot    (nlon,nlat), &
-               Atmos % u_bot    (nlon,nlat), &
-               Atmos % v_bot    (nlon,nlat), &
-               Atmos % p_surf   (nlon,nlat), &
-               Atmos % slp      (nlon,nlat), &
-               Atmos % gust     (nlon,nlat), &
-               Atmos % flux_sw  (nlon,nlat), &
-               Atmos % flux_sw_dir (nlon,nlat), &
-               Atmos % flux_sw_dif (nlon,nlat), &
-               Atmos % flux_sw_down_vis_dir (nlon,nlat), &
-               Atmos % flux_sw_down_vis_dif (nlon,nlat), &
-               Atmos % flux_sw_down_total_dir (nlon,nlat), &
-               Atmos % flux_sw_down_total_dif (nlon,nlat), &
-               Atmos % flux_sw_vis (nlon,nlat), &
-               Atmos % flux_sw_vis_dir (nlon,nlat), &
-               Atmos % flux_sw_vis_dif(nlon,nlat), &
-               Atmos % flux_lw  (nlon,nlat), &
-               Atmos % coszen   (nlon,nlat), &
-               Atmos % lprec    (nlon,nlat), &
-               Atmos % fprec    (nlon,nlat)  )
+!-----------------------------------------------------------------------
+!---- initialize data_override in order to allow certain data ingest 
+!---- inside of radiation init
+!-----------------------------------------------------------------------
+!rab    call data_override_init (Atm_domain_in = Atmos%domain)
 
-    do j = 1, nlat
-       do i = 1, nlon    
-          Atmos % flux_sw(i,j)                 = 0.0
-          Atmos % flux_lw(i,j)                 = 0.0    
-          Atmos % flux_sw_dir (i,j)            = 0.0
-          Atmos % flux_sw_dif (i,j)            = 0.0 
-          Atmos % flux_sw_down_vis_dir (i,j)   = 0.0 
-          Atmos % flux_sw_down_vis_dif (i,j)   = 0.0 
-          Atmos % flux_sw_down_total_dir (i,j) = 0.0 
-          Atmos % flux_sw_down_total_dif (i,j) = 0.0 
-          Atmos % flux_sw_vis (i,j)            = 0.0 
-          Atmos % flux_sw_vis_dir (i,j)        = 0.0 
-          Atmos % flux_sw_vis_dif(i,j)         = 0.0 
-          Atmos % coszen(i,j)                  = 0.0 
-       enddo
-    enddo
+!-----------------------------------------------------------------------
+!--- before going any further check definitions for 'blocks'
+!-----------------------------------------------------------------------
+    call define_blocks ('atmos_model', Atm_block, isc, iec, jsc, jec, kpts, &
+                        nxblocks, nyblocks, block_message)
+    call alloc_physics_type (Physics, Atm_block, p_hydro, hydro)
+    call atmosphere_pref (Physics%glbl_qty%pref)
+!---------- initialize physics -------
+    call atmos_physics_driver_inputs (Physics, Atm_block)
+    call physics_driver_init(Atmos%Time,         &
+                             Atmos%lon_bnd(:,:), &
+                             Atmos%lat_bnd(:,:), &
+                             Atmos%lon(:,:),     &
+                             Atmos%lat(:,:),     &
+                             Atmos%axes,         &
+                             Atmos%Surf_diff,    &
+                             Exch_ctrl,          &
+                             Atm_block,          &
+                             Moist_clouds,       &
+                             Physics, Physics_tendency)
+!--- need to return tracer values back to dy-core
+!--- because tracer initilization inside of physics
+!--- can reset initial values when they are unset
+    call reset_atmos_tracers (Physics, Physics_tendency, Atm_block)
+
+!---------- initialize radiation -------
+    call alloc_radiation_type (Radiation, Atm_block, p_hydro)
+    call atmosphere_domain (Radiation%control%domain)
+    call atmosphere_pref (Radiation%glbl_qty%pref)
+    call atmosphere_cell_area (Radiation%glbl_qty%area)
+!rab    call atmos_radiation_driver_inputs (Atmos%Time, Radiation, Atm_block)
+    call radiation_block_init(Atmos%Time,         &
+                              Atmos%lon_bnd(:,:), &
+                              Atmos%lat_bnd(:,:), &
+                              Atmos%axes,         &
+                              Exch_ctrl, Atm_block, Radiation, Rad_flux)
+!--------------------------------------------------------------------
+!  if COSP is activated, call its initialization routine.
+!--------------------------------------------------------------------
+    Cosp_rad(1)%control%step_to_call_cosp = .false.
+    if (size(Cosp_rad,1) .gt. 1) &
+       Cosp_rad(2)%control%step_to_call_cosp = Cosp_rad(1)%control%step_to_call_cosp
+    call alloc_cosp_from_rad_type (Cosp_rad, Exch_ctrl, Atm_block)
+    if (Exch_ctrl%do_cosp) then
+      call cosp_driver_init (Atmos%lon_bnd(:,:), &
+                             Atmos%lat_bnd(:,:), &
+                             Atmos%Time,         &
+                             Atmos%axes,         &
+                             kpts,               &
+                             Exch_ctrl%ncol)
+      call set_cosp_precip_sources (Exch_ctrl%cloud_type_form)
+    endif
+
+!--------------------------------------------------------------------
+!---- exchange initial Radiation state fluxes ----
+!--------------------------------------------------------------------
+    call radiation_physics_exch (Atmos%Time)
+
 !-----------------------------------------------------------------------
 !------ get initial state for dynamics -------
-
-    call get_atmosphere_axes ( Atmos % axes )
-
-    call atmosphere_boundary ( Atmos %  lon_bnd, Atmos %  lat_bnd, &
-                               global=.false. )
-
     call get_bottom_mass (Atmos % t_bot,  Atmos % tr_bot, &
                           Atmos % p_bot,  Atmos % z_bot,  &
                           Atmos % p_surf, Atmos % slp     )
@@ -537,6 +856,7 @@ type (time_type), intent(in) :: Time_init, Time, Time_step
    call get_time (Atmos % Time_step, sec, day)
    dt = sec + 86400*day  ! integer seconds
 
+   call atmosphere_resolution (mlon, mlat, global=.true.)
    filename = 'INPUT/atmos_coupled.res.nc'
    if ( file_exist(filename, domain=Atmos%domain) ) then
        if(mpp_pe() == mpp_root_pe() ) call mpp_error ('atmos_model_mod', &
@@ -596,9 +916,12 @@ type (time_type), intent(in) :: Time_init, Time, Time_step
    jpts = mlat  
    dto  = dt 
 
+atmClock = mpp_clock_id( 'Atmosphere', flags=clock_flag_default, grain=CLOCK_COMPONENT )
+radClock = mpp_clock_id( 'Radiation ', flags=clock_flag_default, grain=CLOCK_COMPONENT )
+
 !------ initialize global integral package ------
 !**** TEMPORARY FIX FOR GRID CELL CORNER PROBLEM ****
-call mpp_set_current_pelist(Atmos%pelist)
+    call mpp_set_current_pelist(Atmos%pelist, no_sync=.TRUE.)
 
     allocate (area (nlon, nlat))
 ! call atmosphere_cell_area to obtain array of grid cell areas needed
@@ -610,10 +933,87 @@ call mpp_set_current_pelist(Atmos%pelist)
     deallocate (area)
 
 !-----------------------------------------------------------------------
-   atmClock = mpp_clock_id( 'Atmosphere', flags=clock_flag_default, grain=CLOCK_COMPONENT )
-
 end subroutine atmos_model_init
 ! </SUBROUTINE>
+
+!#######################################################################
+! <SUBROUTINE NAME="radiation_physics_exch"
+!
+! <OVERVIEW>
+subroutine radiation_physics_exch (Time)
+ type (time_type), intent(in) :: Time
+
+   if (.not. do_concurrent_radiation) return
+
+   call exch_rad_phys_state(Moist_clouds, Cosp_rad, Rad_flux, Exch_ctrl)
+   call atmos_radiation_driver_inputs (Time, Radiation, Atm_block)
+
+end subroutine radiation_physics_exch
+! </SUBROUTINE>
+
+
+!#######################################################################
+! <SUBROUTINE NAME="update_atmos_model_dynamics"
+!
+! <OVERVIEW>
+subroutine update_atmos_model_dynamics (Atmos)
+! run the atmospheric dynamics to advect the properties
+  type (atmos_data_type), intent(in) :: Atmos
+
+    call set_atmosphere_pelist()
+
+    call atmosphere_dynamics (Atmos%Time)
+
+    call mpp_set_current_pelist(Atmos%pelist, no_sync=.TRUE.)
+end subroutine update_atmos_model_dynamics
+! </SUBROUTINE>
+
+
+!#######################################################################
+! <SUBROUTINE NAME="update_atmos_model_state"
+!
+! <OVERVIEW>
+subroutine update_atmos_model_state (Atmos)
+! to update the model state after all concurrency is completed
+  type (atmos_data_type), intent(inout) :: Atmos
+!--- local variables
+  integer :: blk
+
+    call set_atmosphere_pelist()
+!--- update heat tendency for concurrent radiation ---
+    if (do_concurrent_radiation) then
+     do blk = 1, nxblocks*nyblocks
+       Physics_tendency%block(blk)%t_dt = Physics_tendency%block(blk)%t_dt + Rad_flux(size(Rad_flux,1))%block(blk)%tdt_rad
+     enddo
+    endif
+
+    call atmosphere_state_update (Atmos%Time, Physics_tendency, Physics, Atm_block)
+
+!------ advance time ------
+    Atmos % Time = Atmos % Time + Atmos % Time_step
+
+    call get_bottom_mass (Atmos % t_bot,  Atmos % tr_bot, &
+                          Atmos % p_bot,  Atmos % z_bot,  &
+                          Atmos % p_surf, Atmos % slp     )
+
+    call get_bottom_wind (Atmos % u_bot, Atmos % v_bot)
+
+!----- Indicate to diag_manager to write diagnostics to file (if needed)
+!----- This is needed for a threaded run.
+    call diag_send_complete(Atmos%Time_step)
+
+!-----------------------------------------------------------------------
+    call radiation_physics_exch (Atmos%Time)
+
+    call mpp_set_current_pelist(Atmos%pelist, no_sync=.TRUE.)
+
+!------ global integrals ------
+    call diag_integral_output (Atmos%Time)
+
+ end subroutine update_atmos_model_state
+! </SUBROUTINE>
+
+
 
 !#######################################################################
 ! <SUBROUTINE NAME="atmos_model_end">
@@ -637,51 +1037,35 @@ end subroutine atmos_model_init
 ! </INOUT>
 
 subroutine atmos_model_end (Atmos)
-
-type (atmos_data_type), intent(inout) :: Atmos
+  type (atmos_data_type), intent(inout) :: Atmos
+!---local variables
+  integer :: idx
 
 !-----------------------------------------------------------------------
 !---- termination routine for atmospheric model ----
                                               
-  call atmosphere_end (Atmos % Time, Atmos%grid)
+    call atmosphere_end (Atmos % Time, Atmos%grid)
+
+    call physics_driver_end (Atmos%Time, Physics, Moist_clouds, Physics_tendency, Atm_block)
+
+    idx = size(Rad_flux,1)
+    call radiation_block_end (Rad_flux(idx), Atm_block)
 
 !------ global integrals ------
-
-  call diag_integral_end (Atmos % Time)
+    call diag_integral_end (Atmos%Time)
 
 !------ write several atmospheric fields ------
 !        also resolution and time step
-  call atmos_model_local_restart(Atmos)
+    call atmos_model_local_restart (Atmos)
 
 !-------- deallocate space --------
-
-  deallocate ( Atmos %  lon_bnd , &
-               Atmos %  lat_bnd , &
-               Atmos % t_bot    , &
-               Atmos % tr_bot   , &
-               Atmos % z_bot    , &
-               Atmos % p_bot    , &
-               Atmos % u_bot    , &
-               Atmos % v_bot    , &
-               Atmos % p_surf   , &
-               Atmos % slp      , &
-               Atmos % gust     , &
-               Atmos % flux_sw  , &
-               Atmos % flux_sw_dir  , &
-               Atmos % flux_sw_dif  , &
-               Atmos % flux_sw_down_vis_dir  , &
-               Atmos % flux_sw_down_vis_dif  , &
-               Atmos % flux_sw_down_total_dir  , &
-               Atmos % flux_sw_down_total_dif  , &
-               Atmos % flux_sw_vis  , &
-               Atmos % flux_sw_vis_dir  , &
-               Atmos % flux_sw_vis_dif  , &
-               Atmos % flux_lw  , &
-               Atmos % coszen   , &
-               Atmos % lprec    , &
-               Atmos % fprec      )
-
-!-----------------------------------------------------------------------
+    call dealloc_atmos_data_type (Atmos)
+    call dealloc_physics_type(Physics)
+    call dealloc_radiation_type(Radiation)
+    call dealloc_radiation_flux_type (Rad_flux)
+    call dealloc_cosp_from_rad_type (Cosp_rad, Exch_ctrl)
+    call dealloc_clouds_from_moist_type (Moist_clouds, Exch_ctrl)
+    deallocate (Rad_flux, Cosp_rad, Moist_clouds)
 
 end subroutine atmos_model_end
 ! </SUBROUTINE>
@@ -693,9 +1077,14 @@ end subroutine atmos_model_end
   subroutine atmos_model_restart(Atmos, timestamp)
     type (atmos_data_type),   intent(inout) :: Atmos
     character(len=*),  intent(in)           :: timestamp
+!---local variables
+    integer :: idx
 
-    call atmosphere_restart(timestamp)
-    call atmos_model_local_restart(Atmos, timestamp)
+     call atmosphere_restart(timestamp)
+     call physics_driver_restart(timestamp)
+     idx = size(Rad_flux,1)
+     call radiation_block_restart(Rad_flux(idx), Atm_block, timestamp)
+     call atmos_model_local_restart(Atmos, timestamp)
 
   end subroutine atmos_model_restart
   ! </SUBROUTINE>
@@ -817,6 +1206,8 @@ type(atmos_data_type), intent(in) :: atm
   write(outunit,*) 'BEGIN CHECKSUM(Atmos_data_type):: ', id, timestep
   write(outunit,100) ' atm%lon_bnd                ', mpp_chksum(atm%lon_bnd               )
   write(outunit,100) ' atm%lat_bnd                ', mpp_chksum(atm%lat_bnd               )
+  write(outunit,100) ' atm%lon                    ', mpp_chksum(atm%lon                   )
+  write(outunit,100) ' atm%lat                    ', mpp_chksum(atm%lat                   )
   write(outunit,100) ' atm%t_bot                  ', mpp_chksum(atm%t_bot                 )
   do n = 1, size(atm%tr_bot,3)
   write(outunit,100) ' atm%tr_bot(:,:,n)          ', mpp_chksum(atm%tr_bot(:,:,n)         )
@@ -1007,5 +1398,81 @@ end subroutine ice_atm_bnd_type_chksum
 ! </SUBROUTINE>
 
 
-end module atmos_model_mod
+  subroutine alloc_atmos_data_type (nlon, nlat, ntprog, Atmos)
+   integer, intent(in) :: nlon, nlat, ntprog
+   type(atmos_data_type), intent(inout) :: Atmos
+    allocate ( Atmos % lon_bnd  (nlon+1,nlat+1), &
+               Atmos % lat_bnd  (nlon+1,nlat+1), &
+               Atmos % lon      (nlon,nlat), &
+               Atmos % lat      (nlon,nlat), &
+               Atmos % t_bot    (nlon,nlat), &
+               Atmos % tr_bot   (nlon,nlat, ntprog), &
+               Atmos % z_bot    (nlon,nlat), &
+               Atmos % p_bot    (nlon,nlat), &
+               Atmos % u_bot    (nlon,nlat), &
+               Atmos % v_bot    (nlon,nlat), &
+               Atmos % p_surf   (nlon,nlat), &
+               Atmos % slp      (nlon,nlat), &
+               Atmos % gust     (nlon,nlat), &
+               Atmos % flux_sw  (nlon,nlat), &
+               Atmos % flux_sw_dir (nlon,nlat), &
+               Atmos % flux_sw_dif (nlon,nlat), &
+               Atmos % flux_sw_down_vis_dir (nlon,nlat), &
+               Atmos % flux_sw_down_vis_dif (nlon,nlat), &
+               Atmos % flux_sw_down_total_dir (nlon,nlat), &
+               Atmos % flux_sw_down_total_dif (nlon,nlat), &
+               Atmos % flux_sw_vis (nlon,nlat), &
+               Atmos % flux_sw_vis_dir (nlon,nlat), &
+               Atmos % flux_sw_vis_dif(nlon,nlat), &
+               Atmos % flux_lw  (nlon,nlat), &
+               Atmos % coszen   (nlon,nlat), &
+               Atmos % lprec    (nlon,nlat), &
+               Atmos % fprec    (nlon,nlat)  )
 
+    Atmos % flux_sw                 = 0.0
+    Atmos % flux_lw                 = 0.0
+    Atmos % flux_sw_dir             = 0.0
+    Atmos % flux_sw_dif             = 0.0
+    Atmos % flux_sw_down_vis_dir    = 0.0
+    Atmos % flux_sw_down_vis_dif    = 0.0
+    Atmos % flux_sw_down_total_dir  = 0.0
+    Atmos % flux_sw_down_total_dif  = 0.0
+    Atmos % flux_sw_vis             = 0.0
+    Atmos % flux_sw_vis_dir         = 0.0
+    Atmos % flux_sw_vis_dif         = 0.0
+    Atmos % coszen                  = 0.0
+
+  end subroutine alloc_atmos_data_type
+
+  subroutine dealloc_atmos_data_type (Atmos)
+   type(atmos_data_type), intent(inout) :: Atmos
+    deallocate (Atmos%lon_bnd,                &
+                Atmos%lat_bnd,                &
+                Atmos%lon,                    &
+                Atmos%lat,                    &
+                Atmos%t_bot,                  &
+                Atmos%tr_bot,                 &
+                Atmos%z_bot,                  &
+                Atmos%p_bot,                  &
+                Atmos%u_bot,                  &
+                Atmos%v_bot,                  &
+                Atmos%p_surf,                 &
+                Atmos%slp,                    &
+                Atmos%gust,                   &
+                Atmos%flux_sw,                &
+                Atmos%flux_sw_dir,            &
+                Atmos%flux_sw_dif,            &
+                Atmos%flux_sw_down_vis_dir,   &
+                Atmos%flux_sw_down_vis_dif,   &
+                Atmos%flux_sw_down_total_dir, &
+                Atmos%flux_sw_down_total_dif, &
+                Atmos%flux_sw_vis,            &
+                Atmos%flux_sw_vis_dir,        &
+                Atmos%flux_sw_vis_dif,        &
+                Atmos%flux_lw,                &
+                Atmos%coszen,                 &
+                Atmos%lprec,                  &
+                Atmos%fprec  )
+  end subroutine dealloc_atmos_data_type
+
+end module atmos_model_mod
