@@ -82,9 +82,9 @@ use physics_radiation_exch_mod,only: exchange_control_type, &
                                      cosp_from_rad_type, &
                                      alloc_cosp_from_rad_type, &
                                      dealloc_cosp_from_rad_type
-use radiation_driver_mod,only: radiation_block_init, radiation_block_time_vary, &
-                               radiation_block, radiation_block_endts, &
-                               radiation_block_restart, radiation_block_end
+use radiation_driver_mod,only: radiation_driver_init, radiation_driver_time_vary, &
+                               radiation_driver, radiation_driver_endts, &
+                               radiation_driver_restart, radiation_driver_end
 use physics_driver_mod, only: surf_diff_type, &
                               cosp_driver_init, &
                               set_cosp_precip_sources, &
@@ -314,17 +314,17 @@ subroutine update_atmos_model_radiation( Surface_boundary, Atmos)
         call atmos_radiation_driver_inputs (Atmos%Time, Radiation, Atm_block)
 
 !----------------------------------------------------------------------
-! call radiation_block_down_time_vary to do the time-dependent, spatially
+! call radiation_driver_down_time_vary to do the time-dependent, spatially
 ! independent calculations before entering blocks / threads loop.
 !---------------------------------------------------------------------
     Time_next = Atmos%Time + Atmos%Time_step
     if (do_concurrent_radiation) then
        ! define rad time as next atmos time
        Time2 = Time_next +  Atmos%Time_step
-       call radiation_block_time_vary (Time_next, Time2, Radiation%glbl_qty%gavg_q, &
+       call radiation_driver_time_vary (Time_next, Time2, Radiation%glbl_qty%gavg_q, &
                                        Rad_flux(idx)%control)
     else
-       call radiation_block_time_vary (Atmos%Time, Time_next, Radiation%glbl_qty%gavg_q, &
+       call radiation_driver_time_vary (Atmos%Time, Time_next, Radiation%glbl_qty%gavg_q, &
                                        Rad_flux(idx)%control)
     endif
 
@@ -342,29 +342,29 @@ subroutine update_atmos_model_radiation( Surface_boundary, Atmos)
        js = jsw-jsc+1
        je = jew-jsc+1
 
-       call radiation_block ( is, ie, js, je, npz, &
-                              Atmos%Time, Atmos%Time+Atmos%Time_step, &
-                              Atmos%lat (is:ie,js:je),   &
-                              Atmos%lon (is:ie,js:je),   &
-                              Radiation%control,      &
-                              Radiation%block(blk),   &
-                              Radiation%glbl_qty,     &
-                              Surface_boundary%land_frac     (isw:iew,jsw:jew),&
-                              Surface_boundary%albedo        (isw:iew,jsw:jew),&
-                              Surface_boundary%albedo_vis_dir(isw:iew,jsw:jew),&
-                              Surface_boundary%albedo_nir_dir(isw:iew,jsw:jew),&
-                              Surface_boundary%albedo_vis_dif(isw:iew,jsw:jew),&
-                              Surface_boundary%albedo_nir_dif(isw:iew,jsw:jew),&
-                              Surface_boundary%t             (isw:iew,jsw:jew),&
-                              Exch_ctrl,                &
-                              Rad_flux(idx)%block(blk), &
-                              Cosp_rad(idx)%control,    &
-                              Cosp_rad(idx)%block(blk), & 
-                              Moist_clouds(idx)%block(blk)  )
+       call radiation_driver ( is, ie, js, je, npz, &
+                               Atmos%Time, Atmos%Time+Atmos%Time_step, &
+                               Atmos%lat (is:ie,js:je),   &
+                               Atmos%lon (is:ie,js:je),   &
+                               Radiation%control,      &
+                               Radiation%block(blk),   &
+                               Radiation%glbl_qty,     &
+                               Surface_boundary%land_frac     (isw:iew,jsw:jew),&
+                               Surface_boundary%albedo        (isw:iew,jsw:jew),&
+                               Surface_boundary%albedo_vis_dir(isw:iew,jsw:jew),&
+                               Surface_boundary%albedo_nir_dir(isw:iew,jsw:jew),&
+                               Surface_boundary%albedo_vis_dif(isw:iew,jsw:jew),&
+                               Surface_boundary%albedo_nir_dif(isw:iew,jsw:jew),&
+                               Surface_boundary%t             (isw:iew,jsw:jew),&
+                               Exch_ctrl,                &
+                               Rad_flux(idx)%block(blk), &
+                               Cosp_rad(idx)%control,    &
+                               Cosp_rad(idx)%block(blk), & 
+                               Moist_clouds(idx)%block(blk)  )
 
     end do
 
-    call radiation_block_endts (1, 1)
+    call radiation_driver_endts (1, 1)
 
   call mpp_clock_end(radClock)
   call mpp_set_current_pelist(Atmos%pelist, no_sync=.TRUE.)
@@ -777,11 +777,11 @@ subroutine atmos_model_init (Atmos, Time_init, Time, Time_step, &
     call atmosphere_pref (Radiation%glbl_qty%pref)
     call atmosphere_cell_area (Radiation%glbl_qty%area)
 !rab    call atmos_radiation_driver_inputs (Atmos%Time, Radiation, Atm_block)
-    call radiation_block_init(Atmos%Time,         &
-                              Atmos%lon_bnd(:,:), &
-                              Atmos%lat_bnd(:,:), &
-                              Atmos%axes,         &
-                              Exch_ctrl, Atm_block, Radiation, Rad_flux)
+    call radiation_driver_init(Atmos%Time,         &
+                               Atmos%lon_bnd(:,:), &
+                               Atmos%lat_bnd(:,:), &
+                               Atmos%axes,         &
+                               Exch_ctrl, Atm_block, Radiation, Rad_flux)
 !--------------------------------------------------------------------
 !  if COSP is activated, call its initialization routine.
 !--------------------------------------------------------------------
@@ -1049,7 +1049,7 @@ subroutine atmos_model_end (Atmos)
     call physics_driver_end (Atmos%Time, Physics, Moist_clouds, Physics_tendency, Atm_block)
 
     idx = size(Rad_flux,1)
-    call radiation_block_end (Rad_flux(idx), Atm_block)
+    call radiation_driver_end (Rad_flux(idx), Atm_block)
 
 !------ global integrals ------
     call diag_integral_end (Atmos%Time)
@@ -1083,7 +1083,7 @@ end subroutine atmos_model_end
      call atmosphere_restart(timestamp)
      call physics_driver_restart(timestamp)
      idx = size(Rad_flux,1)
-     call radiation_block_restart(Rad_flux(idx), Atm_block, timestamp)
+     call radiation_driver_restart(Rad_flux(idx), Atm_block, timestamp)
      call atmos_model_local_restart(Atmos, timestamp)
 
   end subroutine atmos_model_restart
