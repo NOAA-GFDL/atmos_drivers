@@ -17,13 +17,15 @@ use   atmosphere_mod, only: atmosphere_init, atmosphere_end, atmosphere, atmosph
 
 use time_manager_mod, only: time_type, set_time, get_time,  &
                             operator(+), operator (<), operator (>), &
-                            operator (/=), operator (/), operator (*)
+                            operator (/=), operator (/), operator (*), &
+                            set_calendar_type, set_date, get_date, days_in_year, days_in_month, &
+                            NO_CALENDAR, THIRTY_DAY_MONTHS, NOLEAP, JULIAN, GREGORIAN, INVALID_CALENDAR
 
 use          fms_mod, only: file_exist, check_nml_error,                &
                             error_mesg, FATAL, WARNING,                 &
                             mpp_pe, mpp_root_pe, fms_init, fms_end,     &
                             stdlog, stdout, write_version_number,       &
-                            open_restart_file,                          &
+                            open_restart_file, lowercase,               &
                             mpp_clock_id, mpp_clock_begin,              &
                             mpp_clock_end, CLOCK_COMPONENT, set_domain, nullify_domain
 use       fms_io_mod, only: fms_io_exit
@@ -52,15 +54,16 @@ character(len=128), parameter :: tag = &
 
 !-----------------------------------------------------------------------
 !       ----- model time -----
-! there is no calendar associated with model of this type
-! therefore, year=0, month=0 are assumed
 
+   integer :: calendartype = INVALID_CALENDAR
    type (time_type) :: Time, Time_init, Time_end, Time_step_atmos
    integer :: num_atmos_calls, na
+   type (time_type) :: Time_tmp ! used to facilitate some operations on time_type variables.
+   integer :: days_tmp          ! used together with Time_tmp 
 
 ! ----- model initial date -----
 
-   integer :: date_init(6) ! note: year=month=0
+   integer :: date_init(6)
 
 ! ----- timing flags -----
 
@@ -73,14 +76,15 @@ character(len=128), parameter :: tag = &
    type(domain2d), save :: atmos_domain  ! This variable must be treated as read-only
 !-----------------------------------------------------------------------
 
+      character(len=32) :: calendar="no_calendar" ! valid options are "no_calendar", "thirty_day_months", "noleap", "julian", "gregorian"
       integer, dimension(4) :: current_time = (/ 0, 0, 0, 0 /)
-      integer :: days=0, hours=0, minutes=0, seconds=0
+      integer :: years=0, months=0, days=0, hours=0, minutes=0, seconds=0
       integer :: dt_atmos = 0
       integer :: memuse_interval = 72
       integer :: atmos_nthreads = 1
 
-      namelist /main_nml/ current_time, dt_atmos,  &
-                          days, hours, minutes, seconds, memuse_interval, atmos_nthreads
+      namelist /main_nml/ calendar, current_time, dt_atmos,  &
+                          years, months, days, hours, minutes, seconds, memuse_interval, atmos_nthreads
 
 !#######################################################################
 
@@ -125,6 +129,7 @@ contains
     type (time_type) :: Run_length
 !$    integer :: omp_get_thread_num
     integer :: get_cpu_affinity, base_cpu
+    integer :: yr, mo, total_days, total_seconds
 !-----------------------------------------------------------------------
 !----- initialization timing identifiers ----
 
@@ -165,6 +170,21 @@ contains
      call error_mesg ('program atmos_model', 'dt_atmos has not been specified', FATAL)
    endif
 
+   if(lowercase(calendar) == 'no_calendar') then
+     calendartype = NO_CALENDAR
+   else if(lowercase(calendar) == 'thirty_day_months') then
+     calendartype = THIRTY_DAY_MONTHS
+   else if(lowercase(calendar) == 'noleap') then
+     calendartype = NOLEAP
+   else if(lowercase(calendar) == 'julian') then
+     calendartype = JULIAN
+   else if(lowercase(calendar) == 'gregorian') then
+     calendartype = GREGORIAN
+   else
+     call error_mesg ('program atmos_model', trim(calendar)//' is an invalid value for calendar', FATAL)
+   endif
+   call set_calendar_type(calendartype)
+
 !----- read restart file -----
 
    if (file_exist('INPUT/atmos_model.res')) then
@@ -173,17 +193,22 @@ contains
        call mpp_close (unit)
    else
     ! use namelist time if restart file does not exist
-      date(1:2) = 0
-      date(3:6) = current_time
+      if(calendartype == NO_CALENDAR) then
+        date(1:2) = 0
+        date(3:6) = current_time
+      else
+        date(1:3) = 1
+        date(4:6) = current_time(2:4)
+      endif
    endif
 
 !----- write current/initial date actually used to logfile file -----
 
     if ( mpp_pe() == mpp_root_pe() ) then
-      write (logunit,16) date(3:6)
+      write (logunit,16) date
     endif
 
- 16 format ('  current time used = day',i5,' hour',i3,2(':',i2.2)) 
+ 16 format ('  current time used = ',i4,'-',i2,'-',i2,1x,i3,2(':',i2.2)) 
 
 !  print number of tracers to logfile
    if (mpp_pe() == mpp_root_pe()) then
@@ -206,23 +231,39 @@ contains
     call get_base_date ( date_init(1), date_init(2), date_init(3), &
                          date_init(4), date_init(5), date_init(6)  )
 
-  ! make sure base date does not have a year or month specified
-    if ( date_init(1)+date_init(2) /= 0 ) then
-         call error_mesg ('program atmos_model', 'invalid base base - &
-                          &must have year = month = 0', FATAL)
-    endif
-
 !----- set initial and current time types ------
 !----- set run length and compute ending time -----
 #ifdef MARS_GCM
-!               Dont allow minutes in the Mars model
-    date_init(5)= 0.0
+!               Dont allow year, month or minutes in the Mars model
+    if ( date_init(1) /= 0 .or. date_init(2) /= 0 .or. date_init(5) /= 0) then
+         call error_mesg ('program atmos_model', 'invalid base base - '// &
+                          'year, month and minutes must all be zero in the Mars model', FATAL)
+    endif
 #endif MARS_GCM
-    Time_init  = set_time(date_init(4)*int(SECONDS_PER_HOUR)+date_init(5)*int(SECONDS_PER_MINUTE)+date_init(6),date_init(3))
-    Time       = set_time(date     (4)*int(SECONDS_PER_HOUR)+date     (5)*int(SECONDS_PER_MINUTE)+date     (6),date     (3))
-    Run_length = set_time(       hours*int(SECONDS_PER_HOUR)+     minutes*int(SECONDS_PER_MINUTE)+     seconds,days        )
+    if(calendartype == NO_CALENDAR) then
+       Time_init  = set_time(date_init(4)*int(SECONDS_PER_HOUR)+date_init(5)*int(SECONDS_PER_MINUTE)+date_init(6),date_init(3))
+       Time       = set_time(date     (4)*int(SECONDS_PER_HOUR)+date     (5)*int(SECONDS_PER_MINUTE)+date     (6),date     (3))
+       Run_length = set_time(       hours*int(SECONDS_PER_HOUR)+     minutes*int(SECONDS_PER_MINUTE)+     seconds,days        )
+    else
+       Time_init  = set_date(date_init(1),date_init(2), date_init(3),date_init(4),date_init(5),date_init(6))
+       Time       = set_date(date(1),date(2),date(3),date(4),date(5),date(6))
+       Time_tmp = Time
+       total_days = 0
+       do yr=1,years
+         days_tmp = days_in_year(Time_tmp)
+         total_days = total_days + days_tmp
+         Time_tmp = Time_tmp + set_time(0,days_tmp)
+       enddo
+       do mo=1,months
+         days_tmp = days_in_month(Time_tmp)
+         total_days = total_days + days_tmp
+         Time_tmp = Time_tmp + set_time(0,days_tmp)
+       enddo
+       total_days = total_days + days
+       total_seconds = hours*3600 + minutes*60 + seconds
+       Run_length    = set_time (total_seconds,total_days)
+    endif
     Time_end   = Time + Run_length
-
 !-----------------------------------------------------------------------
 !----- write time stamps (for start time and end time) ------
 
@@ -232,13 +273,17 @@ contains
       if ( mpp_pe() == mpp_root_pe() ) write (unit,20) date
 
 !     compute ending time in days,hours,minutes,seconds
-      call get_time ( Time_end, date(6), date(3) )  ! gets sec,days
-      date(4) = date(6)/int(SECONDS_PER_HOUR); date(6) = date(6) - date(4)*int(SECONDS_PER_HOUR)
+      if(calendartype == NO_CALENDAR) then
+        call get_time ( Time_end, date(6), date(3) )  ! gets sec,days
+        date(4) = date(6)/int(SECONDS_PER_HOUR); date(6) = date(6) - date(4)*int(SECONDS_PER_HOUR)
 #ifdef MARS_GCM
-      date(5) = 0                                ; date(6) = date(6) - date(5)*int(SECONDS_PER_MINUTE)
+        date(5) = 0                                ; date(6) = date(6) - date(5)*int(SECONDS_PER_MINUTE)
 #else
-      date(5) = date(6)/int(SECONDS_PER_MINUTE)  ; date(6) = date(6) - date(5)*int(SECONDS_PER_MINUTE)
+        date(5) = date(6)/int(SECONDS_PER_MINUTE)  ; date(6) = date(6) - date(5)*int(SECONDS_PER_MINUTE)
 #endif
+      else
+        call get_date(Time_end, date(1), date(2), date(3), date(4), date(5), date(6))
+      endif
       if ( mpp_pe() == mpp_root_pe() ) write (unit,20) date
 
       call mpp_close (unit)
@@ -312,14 +357,18 @@ contains
 
 !----- compute current time in days,hours,minutes,seconds -----
 
-      date(1:2) = 0
-      call get_time ( Time, date(6), date(3) )
-      date(4) = date(6)/int(SECONDS_PER_HOUR); date(6) = date(6) - date(4)*int(SECONDS_PER_HOUR)
+      if(calendartype == NO_CALENDAR) then
+        date(1:2) = 0
+        call get_time ( Time, date(6), date(3) )
+        date(4) = date(6)/int(SECONDS_PER_HOUR); date(6) = date(6) - date(4)*int(SECONDS_PER_HOUR)
 #ifdef MARS_GCM
-      date(5) = 0                              ; date(6) = date(6) - date(5)*int(SECONDS_PER_MINUTE)
+        date(5) = 0                              ; date(6) = date(6) - date(5)*int(SECONDS_PER_MINUTE)
 #else
-      date(5) = date(6)/int(SECONDS_PER_MINUTE); date(6) = date(6) - date(5)*int(SECONDS_PER_MINUTE)
+        date(5) = date(6)/int(SECONDS_PER_MINUTE); date(6) = date(6) - date(5)*int(SECONDS_PER_MINUTE)
 #endif MARS_GCM
+      else
+        call get_date(Time, date(1), date(2), date(3), date(4), date(5), date(6))
+      endif
 
 !----- check time versus expected ending time ----
 
@@ -353,4 +402,3 @@ contains
 !#######################################################################
 
 end program atmos_model
-
