@@ -609,8 +609,10 @@ subroutine update_atmos_model_up( Surface_boundary, Atmos)
                                 Surface_boundary%u_star   (isw:iew,jsw:jew), &
                                 Surface_boundary%b_star   (isw:iew,jsw:jew), &
                                 Surface_boundary%q_star   (isw:iew,jsw:jew), &
+#ifndef use_AM3_physics
                                 Surface_boundary%shflx    (isw:iew,jsw:jew), &!miz
                                 Surface_boundary%lhflx    (isw:iew,jsw:jew), &!miz
+#endif
                                 Physics_tendency%block(blk),  &
                                 Moist_clouds(1)%block(blk), &
                                 Cosp_rad(1)%control, &
@@ -1300,8 +1302,10 @@ subroutine lnd_ice_atm_bnd_type_chksum(id, timestep, bnd_type)
     write(outunit,100) 'lnd_ice_atm_bnd_type%u_star        ',mpp_chksum(bnd_type%u_star         )
     write(outunit,100) 'lnd_ice_atm_bnd_type%b_star        ',mpp_chksum(bnd_type%b_star         )
     write(outunit,100) 'lnd_ice_atm_bnd_type%q_star        ',mpp_chksum(bnd_type%q_star         )
+#ifndef use_AM3_physics
     write(outunit,100) 'lnd_ice_atm_bnd_type%shflx         ',mpp_chksum(bnd_type%shflx          )!miz
     write(outunit,100) 'lnd_ice_atm_bnd_type%lhflx         ',mpp_chksum(bnd_type%lhflx          )!miz
+#endif
     write(outunit,100) 'lnd_ice_atm_bnd_type%rough_mom     ',mpp_chksum(bnd_type%rough_mom      )
 !    write(outunit,100) 'lnd_ice_atm_bnd_type%data          ',mpp_chksum(bnd_type%data           )
 
