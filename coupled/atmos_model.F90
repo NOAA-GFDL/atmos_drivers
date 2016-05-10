@@ -190,6 +190,8 @@ type land_ice_atmos_boundary_type
    real, dimension(:,:),   pointer :: u_star         =>null() ! friction velocity
    real, dimension(:,:),   pointer :: b_star         =>null() ! bouyancy scale
    real, dimension(:,:),   pointer :: q_star         =>null() ! moisture scale
+   real, dimension(:,:),   pointer :: shflx          =>null() ! sensible heat flux !miz
+   real, dimension(:,:),   pointer :: lhflx          =>null() ! latent heat flux   !miz
    real, dimension(:,:),   pointer :: rough_mom      =>null() ! surface roughness (used for momentum)
    real, dimension(:,:),   pointer :: frac_open_sea  =>null() ! non-seaice fraction (%)
    real, dimension(:,:,:), pointer :: data           =>null() !collective field for "named" fields above
@@ -607,6 +609,10 @@ subroutine update_atmos_model_up( Surface_boundary, Atmos)
                                 Surface_boundary%u_star   (isw:iew,jsw:jew), &
                                 Surface_boundary%b_star   (isw:iew,jsw:jew), &
                                 Surface_boundary%q_star   (isw:iew,jsw:jew), &
+#ifndef use_AM3_physics
+                                Surface_boundary%shflx    (isw:iew,jsw:jew), &!miz
+                                Surface_boundary%lhflx    (isw:iew,jsw:jew), &!miz
+#endif
                                 Physics_tendency%block(blk),  &
                                 Moist_clouds(1)%block(blk), &
                                 Cosp_rad(1)%control, &
@@ -958,11 +964,11 @@ end subroutine radiation_physics_exch
 ! <OVERVIEW>
 subroutine update_atmos_model_dynamics (Atmos)
 ! run the atmospheric dynamics to advect the properties
-  type (atmos_data_type), intent(in) :: Atmos
+  type (atmos_data_type), intent(inout) :: Atmos
 
     call set_atmosphere_pelist()
 
-    call atmosphere_dynamics (Atmos%Time)
+    call atmosphere_dynamics (Atmos%Time,Atmos%surf_diff)
 
     call mpp_set_current_pelist(Atmos%pelist, no_sync=.TRUE.)
 end subroutine update_atmos_model_dynamics
@@ -1296,6 +1302,10 @@ subroutine lnd_ice_atm_bnd_type_chksum(id, timestep, bnd_type)
     write(outunit,100) 'lnd_ice_atm_bnd_type%u_star        ',mpp_chksum(bnd_type%u_star         )
     write(outunit,100) 'lnd_ice_atm_bnd_type%b_star        ',mpp_chksum(bnd_type%b_star         )
     write(outunit,100) 'lnd_ice_atm_bnd_type%q_star        ',mpp_chksum(bnd_type%q_star         )
+#ifndef use_AM3_physics
+    write(outunit,100) 'lnd_ice_atm_bnd_type%shflx         ',mpp_chksum(bnd_type%shflx          )!miz
+    write(outunit,100) 'lnd_ice_atm_bnd_type%lhflx         ',mpp_chksum(bnd_type%lhflx          )!miz
+#endif
     write(outunit,100) 'lnd_ice_atm_bnd_type%rough_mom     ',mpp_chksum(bnd_type%rough_mom      )
 !    write(outunit,100) 'lnd_ice_atm_bnd_type%data          ',mpp_chksum(bnd_type%data           )
 
