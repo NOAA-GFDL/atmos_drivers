@@ -683,7 +683,11 @@ subroutine atmos_model_init (Atmos, Time_init, Time, Time_step, &
   character(len=80) :: control
   character(len=64) :: filename, filename2
   character(len=132) :: text
+#ifdef use_AM3_physics
   logical :: p_hydro, hydro
+#else
+  logical :: p_hydro, hydro, do_uni_zfull !miz
+#endif
   logical, save :: block_message = .true.
 !-----------------------------------------------------------------------
 
@@ -744,7 +748,11 @@ subroutine atmos_model_init (Atmos, Time_init, Time, Time_step, &
     call get_atmosphere_axes (Atmos%axes)
     call atmosphere_boundary (Atmos%lon_bnd, Atmos%lat_bnd, global=.false.)
     call atmosphere_grid_center (Atmos%lon, Atmos%lat)
+#ifdef use_AM3_physics
     call atmosphere_control_data (isc, iec, jsc, jec, kpts, p_hydro, hydro)
+#else
+    call atmosphere_control_data (isc, iec, jsc, jec, kpts, p_hydro, hydro, do_uni_zfull) !miz
+#endif
 
 !-----------------------------------------------------------------------
 !---- initialize data_override in order to allow certain data ingest 
@@ -757,7 +765,11 @@ subroutine atmos_model_init (Atmos, Time_init, Time, Time_step, &
 !-----------------------------------------------------------------------
     call define_blocks ('atmos_model', Atm_block, isc, iec, jsc, jec, kpts, &
                         nxblocks, nyblocks, block_message)
+#ifdef use_AM3_physics
     call alloc_physics_type (Physics, Atm_block, p_hydro, hydro)
+#else
+    call alloc_physics_type (Physics, Atm_block, p_hydro, hydro, do_uni_zfull) !miz
+#endif
     call atmosphere_pref (Physics%glbl_qty%pref)
 !---------- initialize physics -------
     call atmos_physics_driver_inputs (Physics, Atm_block)
@@ -778,7 +790,11 @@ subroutine atmos_model_init (Atmos, Time_init, Time, Time_step, &
     call reset_atmos_tracers (Physics, Physics_tendency, Atm_block)
 
 !---------- initialize radiation -------
+#ifdef use_AM3_physics
     call alloc_radiation_type (Radiation, Atm_block, p_hydro)
+#else
+    call alloc_radiation_type (Radiation, Atm_block, p_hydro, do_uni_zfull) !miz
+#endif
     call atmosphere_domain (Radiation%control%domain)
     call atmosphere_pref (Radiation%glbl_qty%pref)
     call atmosphere_cell_area (Radiation%glbl_qty%area)
