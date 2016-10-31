@@ -173,6 +173,8 @@ type land_ice_atmos_boundary_type
    ! variables of this type are declared by coupler_main, allocated by flux_exchange_init.
 !quantities going from land+ice to atmos
    real, dimension(:,:),   pointer :: t              =>null() ! surface temperature for radiation calculations
+   real, dimension(:,:),   pointer :: u_ref          =>null() ! surface zonal wind (cjg: PBL depth mods) !bqx
+   real, dimension(:,:),   pointer :: v_ref          =>null() ! surface meridional wind (cjg: PBL depth mods) !bqx
    real, dimension(:,:),   pointer :: t_ref          =>null() ! surface air temperature (cjg: PBL depth mods)
    real, dimension(:,:),   pointer :: q_ref          =>null() ! surface air specific humidity (cjg: PBL depth mods)
    real, dimension(:,:),   pointer :: albedo         =>null() ! surface albedo for radiation calculations
@@ -462,15 +464,17 @@ subroutine update_atmos_model_down( Surface_boundary, Atmos )
        js = jsw-jsc+1
        je = jew-jsc+1
        call physics_driver_down ( is, ie, js, je, npz, Time_prev, Atmos%Time, Time_next, &
-                                  Atmos%lat   (is:ie,js:je),   &
-                                  Atmos%lon   (is:ie,js:je),   &
-                                  Atmos%grid%area       (isw:iew,jsw:jew),    &
-                                  Physics%block(blk),   &
+                                  Atmos%lat   (is:ie,js:je),                             &
+                                  Atmos%lon   (is:ie,js:je),                             &
+                                  Atmos%grid%area       (isw:iew,jsw:jew),               &
+                                  Physics%block(blk),                                    &
                                   Surface_boundary%land_frac    (isw:iew,jsw:jew), &
                                   Surface_boundary%rough_mom    (isw:iew,jsw:jew), &
                                   Surface_boundary%frac_open_sea(isw:iew,jsw:jew), &
                                   Surface_boundary%albedo       (isw:iew,jsw:jew), &
                                   Surface_boundary%t            (isw:iew,jsw:jew), &
+                                  Surface_boundary%u_ref        (isw:iew,jsw:jew), & !bqx+
+                                  Surface_boundary%v_ref        (isw:iew,jsw:jew), & !bqx+
                                   Surface_boundary%t_ref        (isw:iew,jsw:jew), &
                                   Surface_boundary%q_ref        (isw:iew,jsw:jew), & ! cjg: PBL depth mods  
                                   Surface_boundary%u_star       (isw:iew,jsw:jew), &
@@ -683,11 +687,7 @@ subroutine atmos_model_init (Atmos, Time_init, Time, Time_step, &
   character(len=80) :: control
   character(len=64) :: filename, filename2
   character(len=132) :: text
-#ifdef use_AM3_physics
-  logical :: p_hydro, hydro
-#else
   logical :: p_hydro, hydro, do_uni_zfull !miz
-#endif
   logical, save :: block_message = .true.
 !-----------------------------------------------------------------------
 
@@ -748,11 +748,7 @@ subroutine atmos_model_init (Atmos, Time_init, Time, Time_step, &
     call get_atmosphere_axes (Atmos%axes)
     call atmosphere_boundary (Atmos%lon_bnd, Atmos%lat_bnd, global=.false.)
     call atmosphere_grid_center (Atmos%lon, Atmos%lat)
-#ifdef use_AM3_physics
-    call atmosphere_control_data (isc, iec, jsc, jec, kpts, p_hydro, hydro)
-#else
     call atmosphere_control_data (isc, iec, jsc, jec, kpts, p_hydro, hydro, do_uni_zfull) !miz
-#endif
 
 !-----------------------------------------------------------------------
 !---- initialize data_override in order to allow certain data ingest 
@@ -765,11 +761,7 @@ subroutine atmos_model_init (Atmos, Time_init, Time, Time_step, &
 !-----------------------------------------------------------------------
     call define_blocks ('atmos_model', Atm_block, isc, iec, jsc, jec, kpts, &
                         nxblocks, nyblocks, block_message)
-#ifdef use_AM3_physics
-    call alloc_physics_type (Physics, Atm_block, p_hydro, hydro)
-#else
     call alloc_physics_type (Physics, Atm_block, p_hydro, hydro, do_uni_zfull) !miz
-#endif
     call atmosphere_pref (Physics%glbl_qty%pref)
 !---------- initialize physics -------
     call atmos_physics_driver_inputs (Physics, Atm_block)
@@ -790,11 +782,7 @@ subroutine atmos_model_init (Atmos, Time_init, Time, Time_step, &
     call reset_atmos_tracers (Physics, Physics_tendency, Atm_block)
 
 !---------- initialize radiation -------
-#ifdef use_AM3_physics
-    call alloc_radiation_type (Radiation, Atm_block, p_hydro)
-#else
     call alloc_radiation_type (Radiation, Atm_block, p_hydro, do_uni_zfull) !miz
-#endif
     call atmosphere_domain (Radiation%control%domain)
     call atmosphere_pref (Radiation%glbl_qty%pref)
     call atmosphere_cell_area (Radiation%glbl_qty%area)
