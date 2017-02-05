@@ -250,7 +250,10 @@ type (physics_type)          :: Physics
 type (physics_tendency_type) :: Physics_tendency
 logical :: do_concurrent_radiation = .false.
 integer :: ntrace, ntprog
-
+#ifndef use_AM3_physics
+logical :: initial_cosp_call = .true.
+integer :: cosp_counter 
+#endif
 contains
 
 !#######################################################################
@@ -295,7 +298,11 @@ subroutine update_atmos_model_radiation( Surface_boundary, Atmos)
     integer :: isc, iec, jsc, jec, npz
     integer :: is, ie, js, je
     logical, save :: message = .true.
-
+#ifndef use_AM3_physics
+    integer :: nsteps_between_cosp_calls
+    integer :: sec, day
+    real :: dt
+#endif
     call set_atmosphere_pelist()
 
 !--- set index for flux levels 
@@ -316,7 +323,35 @@ subroutine update_atmos_model_radiation( Surface_boundary, Atmos)
 !---------------------------------------------------------------------
     if (.not. do_concurrent_radiation) & 
         call atmos_radiation_driver_inputs (Atmos%Time, Radiation, Atm_block)
-
+#ifndef use_AM3_physics
+!--------------------------------------------------------------------
+! define number of steps between cosp calls, based on the value of
+! cosp_frequency obtained from the physics_driver_nml. if COSP has yet to
+! be called in this job (initial_cosp_call = .true) set step_to_call_cosp 
+! to .true., and set cosp_counter so that it hits 0 on the step before the
+! next due cosp call.
+! if this is a  step to call COSP (cosp_counter < 0), set flag and reset
+! counter. 
+! if this is not a step to call COSP, set flag and decrement the 
+! cosp_counter.
+!--------------------------------------------------------------------
+    call get_time (Atmos%Time_step, sec, day)
+    dt = real(sec+day*86400)
+    nsteps_between_cosp_calls = NINT(Exch_ctrl%cosp_frequency/dt)
+    if (initial_cosp_call) then
+      Cosp_rad(idx)%control%step_to_call_cosp = .true.
+      cosp_counter = nsteps_between_cosp_calls - 2
+      initial_cosp_call = .false.
+    else
+      if (cosp_counter < 0) then
+        Cosp_rad(idx)%control%step_to_call_cosp = .true.
+        cosp_counter = nsteps_between_cosp_calls - 2
+      else
+        Cosp_rad(idx)%control%step_to_call_cosp = .false.
+        cosp_counter = cosp_counter - 1
+      endif
+    endif
+#
 !----------------------------------------------------------------------
 ! call radiation_driver_down_time_vary to do the time-dependent, spatially
 ! independent calculations before entering blocks / threads loop.
@@ -581,8 +616,12 @@ subroutine update_atmos_model_up( Surface_boundary, Atmos)
     Time_next = Atmos%Time + Atmos%Time_step
     call get_time (Time_next-Time_prev, sec, day)
     dt = real(sec+day*86400)
+#ifdef use_AM3_physics
     call physics_driver_up_time_vary (Atmos%Time, Time_next, dt)
-
+#else
+    call physics_driver_up_time_vary (Atmos%Time, Time_next, dt,  &
+                                     Cosp_rad(1)%control%step_to_call_cosp)
+#endif
 !--- indices for domain-based arrays
     isc = Atm_block%isc
     iec = Atm_block%iec
@@ -607,7 +646,9 @@ subroutine update_atmos_model_up( Surface_boundary, Atmos)
                                 Atmos%lat (is:ie,js:je),   &
                                 Atmos%lon (is:ie,js:je),   &
                                 Atmos%grid%area (isw:iew,jsw:jew),     &
+#ifdef use_AM3_physics
                                 Physics%control, &
+#endif
                                 Physics%block(blk),   &
                                 Surface_boundary%land_frac(isw:iew,jsw:jew), &
                                 Surface_boundary%u_star   (isw:iew,jsw:jew), &
@@ -619,16 +660,23 @@ subroutine update_atmos_model_up( Surface_boundary, Atmos)
 #endif
                                 Physics_tendency%block(blk),  &
                                 Moist_clouds(1)%block(blk), &
+#ifdef use_AM3_physics
                                 Cosp_rad(1)%control, &
+#endif
                                 Cosp_rad(1)%block(blk), &
+#ifdef use_AM3_physics
                                 Exch_ctrl,  &
+#endif
                                 Atmos%Surf_diff, &
                                 Atmos%lprec(is:ie,js:je), &
                                 Atmos%fprec(is:ie,js:je), &
                                 Atmos%gust (is:ie,js:je) )
     enddo
-
+#ifdef use_AM3_physics
     call physics_driver_up_endts (1, 1)
+#else
+    call physics_driver_up_endts 
+#endif
 
   call mpp_clock_end(atmClock)
   call mpp_set_current_pelist(Atmos%pelist, no_sync=.TRUE.)
@@ -793,7 +841,8 @@ subroutine atmos_model_init (Atmos, Time_init, Time, Time_step, &
                                Atmos%axes,         &
                                Exch_ctrl, Atm_block, Radiation, Rad_flux)
 !--------------------------------------------------------------------
-!  if COSP is activated, call its initialization routine.
+!    if COSP is activated, call its initialization routine and define
+!    needed associated variables.
 !--------------------------------------------------------------------
     Cosp_rad(1)%control%step_to_call_cosp = .false.
     if (size(Cosp_rad,1) .gt. 1) &
@@ -805,8 +854,13 @@ subroutine atmos_model_init (Atmos, Time_init, Time, Time_step, &
                              Atmos%Time,         &
                              Atmos%axes,         &
                              kpts,               &
+#ifdef use_AM3_physics
                              Exch_ctrl%ncol)
       call set_cosp_precip_sources (Exch_ctrl%cloud_type_form)
+else
+                             Exch_ctrl)  
+      call set_cosp_precip_sources (Exch_ctrl%cosp_precip_sources)
+#endif
     endif
 
 !--------------------------------------------------------------------
