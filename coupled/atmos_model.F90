@@ -351,7 +351,7 @@ subroutine update_atmos_model_radiation( Surface_boundary, Atmos)
         cosp_counter = cosp_counter - 1
       endif
     endif
-#
+#endif
 !----------------------------------------------------------------------
 ! call radiation_driver_down_time_vary to do the time-dependent, spatially
 ! independent calculations before entering blocks / threads loop.
@@ -857,7 +857,7 @@ subroutine atmos_model_init (Atmos, Time_init, Time, Time_step, &
 #ifdef use_AM3_physics
                              Exch_ctrl%ncol)
       call set_cosp_precip_sources (Exch_ctrl%cloud_type_form)
-else
+#else
                              Exch_ctrl)  
       call set_cosp_precip_sources (Exch_ctrl%cosp_precip_sources)
 #endif
