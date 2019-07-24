@@ -813,7 +813,8 @@ subroutine atmos_model_init (Atmos, Time_init, Time, Time_step, &
     call atmosphere_pref (Physics%glbl_qty%pref)
 !---------- initialize physics -------
     call atmos_physics_driver_inputs (Physics, Atm_block)
-    call physics_driver_init(Atmos%Time,         &
+    call physics_driver_init(Atmos%domain,       &
+                             Atmos%Time,         &
                              Atmos%lon_bnd(:,:), &
                              Atmos%lat_bnd(:,:), &
                              Atmos%lon(:,:),     &
