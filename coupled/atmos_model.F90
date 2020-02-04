@@ -836,7 +836,8 @@ subroutine atmos_model_init (Atmos, Time_init, Time, Time_step, &
     call atmosphere_pref (Radiation%glbl_qty%pref)
     call atmosphere_cell_area (Radiation%glbl_qty%area)
 !rab    call atmos_radiation_driver_inputs (Atmos%Time, Radiation, Atm_block)
-    call radiation_driver_init(Atmos%Time,         &
+    call radiation_driver_init(Atmos%domain,       &
+                               Atmos%Time,         &
                                Atmos%lon_bnd(:,:), &
                                Atmos%lat_bnd(:,:), &
                                Atmos%axes,         &
