@@ -2,8 +2,8 @@
 
 Atmos Drivers is the driver of the atmospheric system used by GFDL.  There is a
 version which drives the atmospheric system as a standalone model, with appropriately
-supplied boudnary conditions, or as the atmospheric component in a coupled model
-driver by [FMScoupler](https://github.com/NOAA-GFDL/FMScoupler).  The Atmos Drivers
+supplied boundary conditions, or as the atmospheric component in a coupled model
+driven by [FMScoupler](https://github.com/NOAA-GFDL/FMScoupler).  The Atmos Drivers
 can be considered an abstraction layer with dependencies on a dynamical core,
 atmospheric radiation component, atmospheric physics component, and the prognostic
 state update.
