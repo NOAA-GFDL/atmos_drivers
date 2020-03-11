@@ -1,3 +1,21 @@
+!***********************************************************************
+!*                   GNU Lesser General Public License
+!*
+!* This file is part of the GFDL Atmos Drivers project.
+!*
+!* This is free software: you can redistribute it and/or modify it under
+!* the terms of the GNU Lesser General Public License as published by
+!* the Free Software Foundation, either version 3 of the License, or (at
+!* your option) any later version.
+!*
+!* It is distributed in the hope that it will be useful, but WITHOUT
+!* ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+!* FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+!* for more details.
+!*
+!* You should have received a copy of the GNU Lesser General Public
+!* License along with FMS.  If not, see <http://www.gnu.org/licenses/>.
+!***********************************************************************
 
 program atmos_model
 
@@ -46,11 +64,9 @@ implicit none
 
 !-----------------------------------------------------------------------
 
-character(len=128), parameter :: version = &
-'$Id$'
-
-character(len=128), parameter :: tag = &
-'$Name$'
+!---- version number
+! Include variable "version" to be written to log file.
+#include <file_version.h>
 
 !-----------------------------------------------------------------------
 !       ----- model time -----
@@ -59,7 +75,7 @@ character(len=128), parameter :: tag = &
    type (time_type) :: Time, Time_init, Time_end, Time_step_atmos
    integer :: num_atmos_calls, na
    type (time_type) :: Time_tmp ! used to facilitate some operations on time_type variables.
-   integer :: days_tmp          ! used together with Time_tmp 
+   integer :: days_tmp          ! used together with Time_tmp
 
 ! ----- model initial date -----
 
@@ -89,7 +105,7 @@ character(len=128), parameter :: tag = &
 !#######################################################################
 
  call fms_init ( )
- call atmos_model_init 
+ call atmos_model_init
 
 !   ------ atmosphere integration loop -------
 
@@ -163,7 +179,7 @@ contains
 
 !----- write namelist to logfile -----
 
-   call write_version_number (version,tag)
+   call write_version_number ("program atmos_model", version)
    if ( mpp_pe() == mpp_root_pe() ) write (logunit, nml=main_nml)
 
    if (dt_atmos == 0) then
@@ -208,7 +224,7 @@ contains
       write (logunit,16) date
     endif
 
- 16 format ('  current time used = ',i4,'-',i2,'-',i2,1x,i3,2(':',i2.2)) 
+ 16 format ('  current time used = ',i4,'-',i2,'-',i2,1x,i3,2(':',i2.2))
 
 !  print number of tracers to logfile
    if (mpp_pe() == mpp_root_pe()) then
@@ -292,7 +308,7 @@ contains
 
 !-----------------------------------------------------------------------
 !--- compute the time steps ---
-!    determine number of iterations through the time integration loop 
+!    determine number of iterations through the time integration loop
 !    must be evenly divisible
 
       Time_step_atmos = set_time (dt_atmos,0)
@@ -309,7 +325,7 @@ contains
    if ( num_atmos_calls * Time_step_atmos /= Run_length )  &
         call error_mesg ('program atmos_model',  &
            'run length must be multiple of atmosphere time step', FATAL)
-   
+
 !-----------------------------------------------------------------------
 !------ initialize atmospheric model ------
 
@@ -324,7 +340,7 @@ contains
 !$      call set_cpu_affinity(base_cpu + omp_get_thread_num())
 #ifdef DEBUG
 !$      write(6,*) 'PE: ',mpp_pe(),'  thread_num', omp_get_thread_num(),'  affinity:',get_cpu_affinity()
-!$      call flush(6) 
+!$      call flush(6)
 #endif
 !$OMP END PARALLEL
 
