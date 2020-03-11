@@ -893,7 +893,7 @@ subroutine atmos_model_init (Atmos, Time_init, Time, Time_step, &
 !-----------------------------------------------------------------------
 !---- print version number to logfile ----
 
-   call write_version_number ("atmos_model_mod, version)
+   call write_version_number ("atmos_model_mod", version)
 !  write the namelist to a log file
    if (mpp_pe() == mpp_root_pe()) then
       unit = stdlog( )
