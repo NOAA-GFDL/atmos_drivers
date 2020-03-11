@@ -1,6 +1,13 @@
-# Atmos Drivers (atmos)drivers)
+# Atmos Drivers (atmos_drivers)
 
-Atmos Drivers is the driver of the [FMS](https://github.com/NOAA-GFDL/FMS) enabled atmospheric dynamical core used by GFDL.  It depends on the [GFDL_atmos_cubed_sphere](https://github.com/NOAA-GFDL/GFDL_atmos_cubed_sphere), and can be used to run with the [FMScoupler](https://github.com/NOAA-GFDL/FMScoupler)
+Atmos Drivers is the driver of the atmospheric system used by GFDL.  There is a
+version which drives the atmospheric system as a standalone model, with appropriately
+supplied boudnary conditions, or as the atmospheric component in a coupled model
+driver by [FMScoupler](https://github.com/NOAA-GFDL/FMScoupler).  The Atmos Drivers
+can be considered an abstraction layer with dependencies on a dynamical core,
+atmospheric radiation component, atmospheric physics component, and the prognostic
+state update.
+
 
 # Disclaimer
 
@@ -17,5 +24,4 @@ Department of Commerce seal and logo, or the seal and logo of a DOC bureau,
 shall not be used in any manner to imply endorsement of any commercial product
 or activity by DOC or the United States Government.
 
-This project code is made available through GitHub but is managed by NOAA-GFDL
-at https://gitlab.gfdl.noaa.gov.
+This project code is made available through GitHub within the NOAA-GFDL domain.
