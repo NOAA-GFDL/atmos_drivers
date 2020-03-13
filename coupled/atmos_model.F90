@@ -1,9 +1,22 @@
+!***********************************************************************
+!*                   GNU Lesser General Public License
+!*
+!* This file is part of the GFDL Atmos Drivers project.
+!*
+!* This is free software: you can redistribute it and/or modify it under
+!* the terms of the GNU Lesser General Public License as published by
+!* the Free Software Foundation, either version 3 of the License, or (at
+!* your option) any later version.
+!*
+!* It is distributed in the hope that it will be useful, but WITHOUT
+!* ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+!* FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+!* for more details.
+!*
+!* You should have received a copy of the GNU Lesser General Public
+!* License along with FMS.  If not, see <http://www.gnu.org/licenses/>.
+!***********************************************************************
 module atmos_model_mod
-!<CONTACT EMAIL="Bruce.Wyman@noaa.gov"> Bruce Wyman  
-!</CONTACT>
-! <REVIEWER EMAIL="Zhi.Liang@noaa.gov">
-!  Zhi Liang
-! </REVIEWER>
 !-----------------------------------------------------------------------
 !<OVERVIEW>
 !  Driver for the atmospheric model, contains routines to advance the
@@ -91,14 +104,14 @@ use radiation_driver_mod,only: radiation_driver_init, radiation_driver_time_vary
 use physics_driver_mod, only: surf_diff_type, &
                               cosp_driver_init, &
                               set_cosp_precip_sources, &
-                              physics_driver_init, & 
+                              physics_driver_init, &
                               physics_driver_restart, &
                               physics_driver_end, &
                               physics_driver_down_time_vary, &
-                              physics_driver_down, & 
+                              physics_driver_down, &
                               physics_driver_down_endts, &
                               physics_driver_up_time_vary, &
-                              physics_driver_up, & 
+                              physics_driver_up, &
                               physics_driver_up_endts
 
 !-----------------------------------------------------------------------
@@ -122,7 +135,7 @@ public ice_atm_bnd_type_chksum
 !<PUBLICTYPE >
  type atmos_data_type
      type (domain2d)               :: domain             ! domain decomposition
-     integer                       :: axes(4)            ! axis indices (returned by diag_manager) for the atmospheric grid 
+     integer                       :: axes(4)            ! axis indices (returned by diag_manager) for the atmospheric grid
                                                          ! (they correspond to the x, y, pfull, phalf axes)
      real, pointer, dimension(:,:) :: lon_bnd  => null() ! local longitude axis grid box corners in radians.
      real, pointer, dimension(:,:) :: lat_bnd  => null() ! local latitude axis grid box corners in radians.
@@ -134,8 +147,8 @@ public ice_atm_bnd_type_chksum
      real, pointer, dimension(:,:) :: p_bot    => null() ! pressure at lowest model level
      real, pointer, dimension(:,:) :: u_bot    => null() ! zonal wind component at lowest model level
      real, pointer, dimension(:,:) :: v_bot    => null() ! meridional wind component at lowest model level
-     real, pointer, dimension(:,:) :: p_surf   => null() ! surface pressure 
-     real, pointer, dimension(:,:) :: slp      => null() ! sea level pressure 
+     real, pointer, dimension(:,:) :: p_surf   => null() ! surface pressure
+     real, pointer, dimension(:,:) :: slp      => null() ! sea level pressure
      real, pointer, dimension(:,:) :: gust     => null() ! gustiness factor
      real, pointer, dimension(:,:) :: coszen   => null() ! cosine of the zenith angle
      real, pointer, dimension(:,:) :: flux_sw  => null() ! net shortwave flux (W/m2) at the surface
@@ -157,7 +170,7 @@ public ice_atm_bnd_type_chksum
                                                          ! processors would be all land points and
                                                          ! are not assigned to actual processors.
                                                          ! This need not be assigned if all logical
-                                                         ! processors are used. This variable is dummy and need 
+                                                         ! processors are used. This variable is dummy and need
                                                          ! not to be set, but it is needed to pass compilation.
      type (surf_diff_type)         :: Surf_diff          ! store data needed by the multi-step version of the diffusion algorithm
      type (time_type)              :: Time               ! current time
@@ -166,7 +179,7 @@ public ice_atm_bnd_type_chksum
      integer, pointer              :: pelist(:) =>null() ! pelist where atmosphere is running.
      logical                       :: pe                 ! current pe.
      type(coupler_2d_bc_type)      :: fields             ! array of fields used for additional tracers
-     type(grid_box_type)           :: grid               ! hold grid information needed for 2nd order conservative flux exchange 
+     type(grid_box_type)           :: grid               ! hold grid information needed for 2nd order conservative flux exchange
                                                          ! to calculate gradient on cubic sphere grid.
  end type atmos_data_type
 !</PUBLICTYPE >
@@ -185,7 +198,7 @@ type land_ice_atmos_boundary_type
    real, dimension(:,:),   pointer :: albedo_nir_dir =>null()
    real, dimension(:,:),   pointer :: albedo_vis_dif =>null()
    real, dimension(:,:),   pointer :: albedo_nir_dif =>null()
-   real, dimension(:,:),   pointer :: land_frac      =>null() ! fraction amount of land in a grid box 
+   real, dimension(:,:),   pointer :: land_frac      =>null() ! fraction amount of land in a grid box
    real, dimension(:,:),   pointer :: dt_t           =>null() ! temperature tendency at the lowest level
    real, dimension(:,:,:), pointer :: dt_tr          =>null() ! tracer tendency at the lowest level
    real, dimension(:,:),   pointer :: u_flux         =>null() ! zonal wind stress
@@ -226,8 +239,9 @@ logical                                :: in_different_file = .false.
 
 !-----------------------------------------------------------------------
 
-character(len=128) :: version = '$Id$'
-character(len=128) :: tagname = '$Name$'
+!---- version number
+! Include variable "version" to be written to log file.
+#include <file_version.h>
 
 integer :: ivapor = NO_TRACER ! index of water vapor tracer
 
@@ -253,7 +267,7 @@ logical :: do_concurrent_radiation = .false.
 integer :: ntrace, ntprog
 #ifndef use_AM3_physics
 logical :: initial_cosp_call = .true.
-integer :: cosp_counter 
+integer :: cosp_counter
 #endif
 contains
 
@@ -261,7 +275,7 @@ contains
 ! <SUBROUTINE NAME="update_atmos_model_radiation">
 !
 ! <OVERVIEW>
-!   compute the atmospheric tendencies for dynamics, radiation, 
+!   compute the atmospheric tendencies for dynamics, radiation,
 !   vertical diffusion of momentum, tracers, and heat/moisture.
 ! </OVERVIEW>
 !
@@ -270,7 +284,7 @@ contains
 !   atmospheric tendencies for dynamics, radiation, vertical diffusion of
 !   momentum, tracers, and heat/moisture.  For heat/moisture only the
 !   downward sweep of the tridiagonal elimination is performed, hence
-!   the name "_down". 
+!   the name "_down".
 !</DESCRIPTION>
 
 !   <TEMPLATE>
@@ -278,7 +292,7 @@ contains
 !   </TEMPLATE>
 
 ! <IN NAME = "Surface_boundary" TYPE="type(land_ice_atmos_boundary_type)">
-!   Derived-type variable that contains quantities going from land+ice to atmos.  
+!   Derived-type variable that contains quantities going from land+ice to atmos.
 ! </IN>
 
 ! <INOUT NAME="Atmos" TYPE="type(atmos_data_type)">
@@ -306,7 +320,7 @@ subroutine update_atmos_model_radiation( Surface_boundary, Atmos)
 #endif
     call set_atmosphere_pelist()
 
-!--- set index for flux levels 
+!--- set index for flux levels
 !--- idx=1 serial radiation
 !--- idx=2 concurrent radiation
     idx = size(Rad_flux,1)
@@ -322,18 +336,18 @@ subroutine update_atmos_model_radiation( Surface_boundary, Atmos)
 !----------------------------------------------------------------------
 ! calculate p_full, z_full, p_half, and z_half
 !---------------------------------------------------------------------
-    if (.not. do_concurrent_radiation) & 
+    if (.not. do_concurrent_radiation) &
         call atmos_radiation_driver_inputs (Atmos%Time, Radiation, Atm_block)
 #ifndef use_AM3_physics
 !--------------------------------------------------------------------
 ! define number of steps between cosp calls, based on the value of
 ! cosp_frequency obtained from the physics_driver_nml. if COSP has yet to
-! be called in this job (initial_cosp_call = .true) set step_to_call_cosp 
+! be called in this job (initial_cosp_call = .true) set step_to_call_cosp
 ! to .true., and set cosp_counter so that it hits 0 on the step before the
 ! next due cosp call.
 ! if this is a  step to call COSP (cosp_counter < 0), set flag and reset
-! counter. 
-! if this is not a step to call COSP, set flag and decrement the 
+! counter.
+! if this is not a step to call COSP, set flag and decrement the
 ! cosp_counter.
 !--------------------------------------------------------------------
     call get_time (Atmos%Time_step, sec, day)
@@ -399,7 +413,7 @@ subroutine update_atmos_model_radiation( Surface_boundary, Atmos)
                                Exch_ctrl,                &
                                Rad_flux(idx)%block(blk), &
                                Cosp_rad(idx)%control,    &
-                               Cosp_rad(idx)%block(blk), & 
+                               Cosp_rad(idx)%block(blk), &
                                Moist_clouds(idx)%block(blk)  )
 
     end do
@@ -416,7 +430,7 @@ subroutine update_atmos_model_radiation( Surface_boundary, Atmos)
 ! <SUBROUTINE NAME="update_atmos_model_down">
 !
 ! <OVERVIEW>
-!   compute the atmospheric tendencies for dynamics, radiation, 
+!   compute the atmospheric tendencies for dynamics, radiation,
 !   vertical diffusion of momentum, tracers, and heat/moisture.
 ! </OVERVIEW>
 !
@@ -425,7 +439,7 @@ subroutine update_atmos_model_radiation( Surface_boundary, Atmos)
 !   atmospheric tendencies for dynamics, radiation, vertical diffusion of
 !   momentum, tracers, and heat/moisture.  For heat/moisture only the
 !   downward sweep of the tridiagonal elimination is performed, hence
-!   the name "_down". 
+!   the name "_down".
 !</DESCRIPTION>
 
 !   <TEMPLATE>
@@ -433,7 +447,7 @@ subroutine update_atmos_model_radiation( Surface_boundary, Atmos)
 !   </TEMPLATE>
 
 ! <IN NAME = "Surface_boundary" TYPE="type(land_ice_atmos_boundary_type)">
-!   Derived-type variable that contains quantities going from land+ice to atmos.  
+!   Derived-type variable that contains quantities going from land+ice to atmos.
 ! </IN>
 
 ! <INOUT NAME="Atmos" TYPE="type(atmos_data_type)">
@@ -450,7 +464,7 @@ subroutine update_atmos_model_down( Surface_boundary, Atmos )
   type (atmos_data_type), intent(inout) :: Atmos
 !--- local variables ---
     type(time_type) :: Time_prev, Time_next
-    real    :: dt 
+    real    :: dt
     integer :: sec, day
     integer :: isw, iew, jsw, jew  ! block start/end in global index space ! just indices
     integer :: isc, iec, jsc, jec, npz
@@ -472,8 +486,8 @@ subroutine update_atmos_model_down( Surface_boundary, Atmos )
 
 !---------------------------------------------------------------------
 ! call physics_driver_down_time_vary to do the time-dependent, spatially
-! independent calculations before entering blocks / threads loop. 
-!--------------------------------------------------------------------- 
+! independent calculations before entering blocks / threads loop.
+!---------------------------------------------------------------------
     Time_prev = Atmos%Time                       ! two time-level scheme
     Time_next = Atmos%Time + Atmos%Time_step
     call get_time (Time_next-Time_prev, sec, day)
@@ -512,7 +526,7 @@ subroutine update_atmos_model_down( Surface_boundary, Atmos )
                                   Surface_boundary%u_ref        (isw:iew,jsw:jew), & !bqx+
                                   Surface_boundary%v_ref        (isw:iew,jsw:jew), & !bqx+
                                   Surface_boundary%t_ref        (isw:iew,jsw:jew), &
-                                  Surface_boundary%q_ref        (isw:iew,jsw:jew), & ! cjg: PBL depth mods  
+                                  Surface_boundary%q_ref        (isw:iew,jsw:jew), & ! cjg: PBL depth mods
                                   Surface_boundary%u_star       (isw:iew,jsw:jew), &
                                   Surface_boundary%b_star       (isw:iew,jsw:jew), &
                                   Surface_boundary%q_star       (isw:iew,jsw:jew), &
@@ -569,7 +583,7 @@ subroutine update_atmos_model_down( Surface_boundary, Atmos )
 !   Called every time step as the atmospheric driver to finish the upward
 !   sweep of the tridiagonal elimination for heat/moisture and compute the
 !   convective and large-scale tendencies.  The atmospheric variables are
-!   advanced one time step and tendencies set back to zero. 
+!   advanced one time step and tendencies set back to zero.
 !</DESCRIPTION>
 
 ! <TEMPLATE>
@@ -577,7 +591,7 @@ subroutine update_atmos_model_down( Surface_boundary, Atmos )
 ! </TEMPLATE>
 
 ! <IN NAME = "Surface_boundary" TYPE="type(land_ice_atmos_boundary_type)">
-!   Derived-type variable that contains quantities going from land+ice to atmos.  
+!   Derived-type variable that contains quantities going from land+ice to atmos.
 ! </IN>
 
 ! <INOUT NAME="Atmos" TYPE="type(atmos_data_type)">
@@ -676,7 +690,7 @@ subroutine update_atmos_model_up( Surface_boundary, Atmos)
 #ifdef use_AM3_physics
     call physics_driver_up_endts (1, 1)
 #else
-    call physics_driver_up_endts 
+    call physics_driver_up_endts
 #endif
 
   call mpp_clock_end(atmClock)
@@ -693,7 +707,7 @@ end subroutine update_atmos_model_up
 
 ! <DESCRIPTION>
 !     This routine allocates storage and returns a variable of type
-!     atmos_boundary_data_type, and also reads a namelist input and restart file. 
+!     atmos_boundary_data_type, and also reads a namelist input and restart file.
 ! </DESCRIPTION>
 
 ! <TEMPLATE>
@@ -803,7 +817,7 @@ subroutine atmos_model_init (Atmos, Time_init, Time, Time_step, &
     call atmosphere_control_data (isc, iec, jsc, jec, kpts, p_hydro, hydro, do_uni_zfull) !miz
 
 !-----------------------------------------------------------------------
-!---- initialize data_override in order to allow certain data ingest 
+!---- initialize data_override in order to allow certain data ingest
 !---- inside of radiation init
 !-----------------------------------------------------------------------
 !rab    call data_override_init (Atm_domain_in = Atmos%domain)
@@ -864,7 +878,7 @@ subroutine atmos_model_init (Atmos, Time_init, Time, Time_step, &
                              Exch_ctrl%ncol)
       call set_cosp_precip_sources (Exch_ctrl%cloud_type_form)
 #else
-                             Exch_ctrl)  
+                             Exch_ctrl)
       call set_cosp_precip_sources (Exch_ctrl%cosp_precip_sources)
 #endif
     endif
@@ -885,7 +899,7 @@ subroutine atmos_model_init (Atmos, Time_init, Time, Time_step, &
 !-----------------------------------------------------------------------
 !---- print version number to logfile ----
 
-   call write_version_number ( version, tagname )
+   call write_version_number ("atmos_model_mod", version)
 !  write the namelist to a log file
    if (mpp_pe() == mpp_root_pe()) then
       unit = stdlog( )
@@ -941,8 +955,8 @@ subroutine atmos_model_init (Atmos, Time_init, Time, Time_step, &
 
    ! to be written to restart file
    ipts = mlon
-   jpts = mlat  
-   dto  = dt 
+   jpts = mlat
+   dto  = dt
 
 atmClock = mpp_clock_id( 'Atmosphere', flags=clock_flag_default, grain=CLOCK_COMPONENT )
 radClock = mpp_clock_id( 'Radiation ', flags=clock_flag_default, grain=CLOCK_COMPONENT )
@@ -1133,7 +1147,7 @@ subroutine atmos_model_end (Atmos)
 
 !-----------------------------------------------------------------------
 !---- termination routine for atmospheric model ----
-                                              
+
     call atmosphere_end (Atmos % Time, Atmos%grid)
 
     call physics_driver_end (Atmos%Time, Physics, Moist_clouds, Physics_tendency, Atm_block)
@@ -1304,7 +1318,7 @@ end subroutine atm_stock_pe
 ! </IN>
 !
 subroutine atmos_data_type_chksum(id, timestep, atm)
-type(atmos_data_type), intent(in) :: atm 
+type(atmos_data_type), intent(in) :: atm
     character(len=*), intent(in) :: id
     integer         , intent(in) :: timestep
     integer :: n, outunit
