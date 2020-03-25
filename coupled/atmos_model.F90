@@ -817,8 +817,8 @@ subroutine atmos_model_init (Atmos, Time_init, Time, Time_step, &
     call atmosphere_pref (Physics%glbl_qty%pref)
 !---------- initialize physics -------
     call atmos_physics_driver_inputs (Physics, Atm_block)
-    call physics_driver_init(Atmos%domain,       &
-                             Atmos%Time,         &
+    call atmosphere_domain (Physics%control%domain)
+    call physics_driver_init(Atmos%Time,         &
                              Atmos%lon_bnd(:,:), &
                              Atmos%lat_bnd(:,:), &
                              Atmos%lon(:,:),     &
@@ -840,8 +840,7 @@ subroutine atmos_model_init (Atmos, Time_init, Time, Time_step, &
     call atmosphere_pref (Radiation%glbl_qty%pref)
     call atmosphere_cell_area (Radiation%glbl_qty%area)
 !rab    call atmos_radiation_driver_inputs (Atmos%Time, Radiation, Atm_block)
-    call radiation_driver_init(Atmos%domain,       &
-                               Atmos%Time,         &
+    call radiation_driver_init(Atmos%Time,         &
                                Atmos%lon_bnd(:,:), &
                                Atmos%lat_bnd(:,:), &
                                Atmos%axes,         &
