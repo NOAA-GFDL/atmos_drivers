@@ -1204,22 +1204,29 @@ end subroutine atmos_model_end
     type(FmsNetcdfFile_t)       ::  Atm_restart
     type(FmsNetcdfDomainFile_t) ::  Til_restart
     logical :: til_file_exist
+    character(len=128) :: filename
 
     if( do_netcdf_restart) then
       if(mpp_pe() == mpp_root_pe()) then
          call mpp_error ('atmos_model_mod', 'Writing netCDF formatted restart file.', NOTE)
       endif
 
-      if (open_file(Atm_restart,"RESTART/atmos_coupled.res.nc","overwrite", is_restart=.true.)) then !scalar file
+      if (present(timestamp)) then
+         filename = "RESTART/"//trim(timestamp)//".atmos_coupled.res.nc"
+      else
+         filename = "RESTART/atmos_coupled.res.nc"
+      endif
+
+      if (open_file(Atm_restart,filename,"overwrite", is_restart=.true.)) then !scalar file
         call register_atmos_restart_scalar(Atm_restart)
         call write_restart(Atm_restart)
         call close_file(Atm_restart)
       endif
 
       if (mpp_get_ntile_count(Atmos%domain) == 1) then
-         til_file_exist = open_file(Til_restart,"RESTART/atmos_coupled.res.nc","append", Atmos%domain, is_restart=.true.)!domain file
+         til_file_exist = open_file(Til_restart,filename,"append", Atmos%domain, is_restart=.true.)!domain file
       else
-         til_file_exist = open_file(Til_restart,"RESTART/atmos_coupled.res.nc","overwrite", Atmos%domain, is_restart=.true.) !domain file
+         til_file_exist = open_file(Til_restart,filename,"overwrite", Atmos%domain, is_restart=.true.) !domain file
       endif
 
       if(til_file_exist) then
