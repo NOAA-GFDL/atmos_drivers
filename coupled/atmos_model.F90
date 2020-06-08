@@ -1010,7 +1010,7 @@ subroutine register_atmos_restart_domain(Til_restart, Atmos)
   dim_names =  (/"xaxis_1", "yaxis_1", "Time"/)
   call register_axis(Til_restart, dim_names(1), "x")
   call register_axis(Til_restart, dim_names(2), "y")
-  call register_axis(Til_restart, dim_names(3), unlimited)
+  if (.not. Til_restart%mode_is_append) call register_axis(Til_restart, dim_names(3), unlimited)
 
   if (.not. Til_restart%is_readonly) then !If not reading the file, write the time dimension data
       call register_field(Til_restart, dim_names(1), "double", (/"xaxis_1"/))
@@ -1023,11 +1023,13 @@ subroutine register_atmos_restart_domain(Til_restart, Atmos)
       call get_global_io_domain_indices(Til_restart, dim_names(2), is, ie, indices=buffer)
       call write_data(Til_restart, dim_names(2), buffer)
 
-      call register_field(Til_restart, dim_names(3), "double", (/"Time"/))
-      call register_variable_attribute(Til_restart, dim_names(3), "cartesian_axis", "T")
-      call register_variable_attribute(Til_restart, dim_names(3), "units", "time level")
-      call register_variable_attribute(Til_restart, dim_names(3), "long_name", dim_names(3))
-      call write_data(Til_restart, dim_names(3), 1)
+      if (.not. Til_restart%mode_is_append) then
+         call register_field(Til_restart, dim_names(3), "double", (/"Time"/))
+         call register_variable_attribute(Til_restart, dim_names(3), "cartesian_axis", "T")
+         call register_variable_attribute(Til_restart, dim_names(3), "units", "time level")
+         call register_variable_attribute(Til_restart, dim_names(3), "long_name", dim_names(3))
+         call write_data(Til_restart, dim_names(3), 1)
+      endif
   endif
 
    call register_restart_field(Til_restart, 'lprec', Atmos%lprec, dim_names)
