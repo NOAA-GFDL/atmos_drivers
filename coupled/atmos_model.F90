@@ -986,9 +986,9 @@ subroutine register_atmos_restart_scalar(Atm_restart)
   call register_axis(Atm_restart, dim_names(1), unlimited)
   if (.not. Atm_restart%is_readonly) then !If not reading the file, write the time dimension data
     call register_field(Atm_restart, dim_names(1), "double", dim_names)
-    call register_variable_attribute(Atm_restart, dim_names(1), "cartesian_axis", "T")
-    call register_variable_attribute(Atm_restart, dim_names(1), "units", "time level")
-    call register_variable_attribute(Atm_restart, dim_names(1), "long_name", dim_names(1))
+    call register_variable_attribute(Atm_restart, dim_names(1), "cartesian_axis", "T", str_len=len_trim("T"))
+    call register_variable_attribute(Atm_restart, dim_names(1), "units", "time level", str_len=len_trim("time level"))
+    call register_variable_attribute(Atm_restart, dim_names(1), "long_name", dim_names(1), str_len=len_trim(dim_names(1)))
     call write_data(Atm_restart, dim_names(1), 1)
   endif
 
@@ -1014,20 +1014,20 @@ subroutine register_atmos_restart_domain(Til_restart, Atmos)
 
   if (.not. Til_restart%is_readonly) then !If not reading the file, write the time dimension data
       call register_field(Til_restart, dim_names(1), "double", (/"xaxis_1"/))
-      call register_variable_attribute(Til_restart, dim_names(1), "cartesian_axis", "X")
+      call register_variable_attribute(Til_restart, dim_names(1), "cartesian_axis", "X", str_len=len_trim("X"))
       call get_global_io_domain_indices(Til_restart, dim_names(1), is, ie, indices=buffer)
       call write_data(Til_restart, dim_names(1), buffer)
 
       call register_field(Til_restart, dim_names(2), "double", (/"yaxis_1"/))
-      call register_variable_attribute(Til_restart, dim_names(2), "cartesian_axis", "Y")
+      call register_variable_attribute(Til_restart, dim_names(2), "cartesian_axis", "Y", str_len=len_trim("Y"))
       call get_global_io_domain_indices(Til_restart, dim_names(2), is, ie, indices=buffer)
       call write_data(Til_restart, dim_names(2), buffer)
 
       if (.not. Til_restart%mode_is_append) then
          call register_field(Til_restart, dim_names(3), "double", (/"Time"/))
-         call register_variable_attribute(Til_restart, dim_names(3), "cartesian_axis", "T")
-         call register_variable_attribute(Til_restart, dim_names(3), "units", "time level")
-         call register_variable_attribute(Til_restart, dim_names(3), "long_name", dim_names(3))
+         call register_variable_attribute(Til_restart, dim_names(3), "cartesian_axis", "T", str_len=len_trim("T"))
+         call register_variable_attribute(Til_restart, dim_names(3), "units", "time level", str_len=len_trim("time level"))
+         call register_variable_attribute(Til_restart, dim_names(3), "long_name", dim_names(3), str_len=len_trim(dim_names(3)))
          call write_data(Til_restart, dim_names(3), 1)
       endif
   endif
