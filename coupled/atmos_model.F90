@@ -51,10 +51,9 @@ use mpp_mod,            only: input_nml_file
 use fms_mod,            only: open_namelist_file
 #endif
 use fms_mod,            only: file_exist, error_mesg, field_size, FATAL, NOTE, WARNING
-use fms_mod,            only: close_file_to_be_removed => close_file,  write_version_number, stdlog, stdout
-use fms_mod,            only: read_data, write_data_to_be_removed => write_data, clock_flag_default
-use fms_mod,            only: open_restart_file, check_nml_error
-use fms_io_mod,         only: get_restart_io_mode
+use fms_mod,            only: fms_io_close_file => close_file,  write_version_number, stdlog, stdout
+use fms_mod,            only: clock_flag_default
+use fms_mod,            only: check_nml_error
 use fms2_io_mod,        only: FmsNetcdfFile_t, FmsNetcdfDomainFile_t, &
                               register_restart_field, register_axis, unlimited, &
                               open_file, read_restart, write_restart, close_file, &
@@ -783,10 +782,10 @@ subroutine atmos_model_init (Atmos, Time_init, Time, Time_step, &
          read  (unit, nml=atmos_model_nml, iostat=io, end=10)
          ierr = check_nml_error(io,'atmos_model_nml')
       enddo
- 10     call close_file_to_be_removed (unit)
+ 10     call fms_io_close_file (unit)
 #endif
    endif
-   call get_restart_io_mode(do_netcdf_restart)
+   do_netcdf_restart = .true. !< Always use netcdf
 
 !-----------------------------------------------------------------------
 ! how many tracers have been registered?
@@ -903,7 +902,7 @@ subroutine atmos_model_init (Atmos, Time_init, Time, Time_step, &
    if (mpp_pe() == mpp_root_pe()) then
       unit = stdlog( )
       write (unit, nml=atmos_model_nml)
-      call close_file_to_be_removed (unit)
+      call fms_io_close_file (unit)
 !  number of tracers
       write (unit, '(a,i3)') 'Number of tracers =', ntrace
       write (unit, '(a,i3)') 'Number of prognostic tracers =', ntprog
@@ -977,20 +976,31 @@ radClock = mpp_clock_id( 'Radiation ', flags=clock_flag_default, grain=CLOCK_COM
 end subroutine atmos_model_init
 ! </SUBROUTINE>
 
-subroutine register_atmos_restart_scalar(Atm_restart)
-  type(FmsNetcdfFile_t), intent(inout)       ::  Atm_restart
+!< Add_dimension_data: Adds dummy data for the domain decomposed axis
+subroutine add_domain_dimension_data(fileobj)
+  type(FmsNetcdfDomainFile_t) :: fileobj !< Fms2io domain decomposed fileobj
+  integer, dimension(:), allocatable :: buffer !< Buffer with axis data
+  integer :: is, ie !< Starting and Ending indices for data
 
-  character(len=8), dimension(1)       :: dim_names
+    call get_global_io_domain_indices(fileobj, "xaxis_1", is, ie, indices=buffer)
+    call write_data(fileobj, "xaxis_1", buffer)
+    deallocate(buffer)
+
+    call get_global_io_domain_indices(fileobj, "yaxis_1", is, ie, indices=buffer)
+    call write_data(fileobj, "yaxis_1", buffer)
+    deallocate(buffer)
+
+end subroutine add_domain_dimension_data
+
+!< register_atmos_restart_scalar: register the restart variables in the scalar netcdf
+!! restarts
+subroutine register_atmos_restart_scalar(Atm_restart)
+  type(FmsNetcdfFile_t), intent(inout)       ::  Atm_restart !< Fms2io fileobj
+
+  character(len=8), dimension(1)       :: dim_names !< Array of dimension names
 
   dim_names(1) = "Time"
   call register_axis(Atm_restart, dim_names(1), unlimited)
-  if (.not. Atm_restart%is_readonly) then !If not reading the file, write the time dimension data
-    call register_field(Atm_restart, dim_names(1), "double", dim_names)
-    call register_variable_attribute(Atm_restart, dim_names(1), "cartesian_axis", "T", str_len=len_trim("T"))
-    call register_variable_attribute(Atm_restart, dim_names(1), "units", "time level", str_len=len_trim("time level"))
-    call register_variable_attribute(Atm_restart, dim_names(1), "long_name", dim_names(1), str_len=len_trim(dim_names(1)))
-    call write_data(Atm_restart, dim_names(1), 1)
-  endif
 
   call register_restart_field(Atm_restart, 'glon_bnd', ipts, dim_names)
   call register_restart_field(Atm_restart, 'glat_bnd', jpts, dim_names)
@@ -999,46 +1009,30 @@ subroutine register_atmos_restart_scalar(Atm_restart)
 end subroutine register_atmos_restart_scalar
 
 ! </SUBROUTINE>
+!< register_atmos_restart_domain: register the domain decomposed restart variables
 subroutine register_atmos_restart_domain(Til_restart, Atmos)
-  type(FmsNetcdfDomainFile_t), intent(inout) ::  Til_restart
-  type (atmos_data_type), intent(inout) :: Atmos
+  type(FmsNetcdfDomainFile_t), intent(inout) ::  Til_restart !< Fms2io domain decomposed fileobj
+  type (atmos_data_type), intent(inout) :: Atmos !< Atmosphere data type
 
-  character(len=8), dimension(3)       :: dim_names
-  integer :: is, ie
-  integer, dimension(:), allocatable         :: buffer
+  character(len=8), dimension(3)       :: dim_names !< Array of dimensions
 
   dim_names =  (/"xaxis_1", "yaxis_1", "Time"/)
   call register_axis(Til_restart, dim_names(1), "x")
   call register_axis(Til_restart, dim_names(2), "y")
   if (.not. Til_restart%mode_is_append) call register_axis(Til_restart, dim_names(3), unlimited)
 
-  if (.not. Til_restart%is_readonly) then !If not reading the file, write the time dimension data
-      call register_field(Til_restart, dim_names(1), "double", (/"xaxis_1"/))
-      call register_variable_attribute(Til_restart, dim_names(1), "cartesian_axis", "X", str_len=len_trim("X"))
-      call get_global_io_domain_indices(Til_restart, dim_names(1), is, ie, indices=buffer)
-      call write_data(Til_restart, dim_names(1), buffer)
+  !< Register the domain decomposed dimensions as variables so that the combiner can work
+  !! correctly
+  call register_field(Til_restart, dim_names(1), "double", (/dim_names(1)/))
+  call register_field(Til_restart, dim_names(2), "double", (/dim_names(2)/))
 
-      call register_field(Til_restart, dim_names(2), "double", (/"yaxis_1"/))
-      call register_variable_attribute(Til_restart, dim_names(2), "cartesian_axis", "Y", str_len=len_trim("Y"))
-      call get_global_io_domain_indices(Til_restart, dim_names(2), is, ie, indices=buffer)
-      call write_data(Til_restart, dim_names(2), buffer)
-
-      if (.not. Til_restart%mode_is_append) then
-         call register_field(Til_restart, dim_names(3), "double", (/"Time"/))
-         call register_variable_attribute(Til_restart, dim_names(3), "cartesian_axis", "T", str_len=len_trim("T"))
-         call register_variable_attribute(Til_restart, dim_names(3), "units", "time level", str_len=len_trim("time level"))
-         call register_variable_attribute(Til_restart, dim_names(3), "long_name", dim_names(3), str_len=len_trim(dim_names(3)))
-         call write_data(Til_restart, dim_names(3), 1)
-      endif
-  endif
-
-   call register_restart_field(Til_restart, 'lprec', Atmos%lprec, dim_names)
-   call register_restart_field(Til_restart, 'fprec', Atmos%fprec, dim_names)
-   call register_restart_field(Til_restart, 'gust',  Atmos%gust,  dim_names)
-   if (restart_tbot_qbot) then
+  call register_restart_field(Til_restart, 'lprec', Atmos%lprec, dim_names)
+  call register_restart_field(Til_restart, 'fprec', Atmos%fprec, dim_names)
+  call register_restart_field(Til_restart, 'gust',  Atmos%gust,  dim_names)
+  if (restart_tbot_qbot) then
       call register_restart_field(Til_restart, 't_bot', Atmos%t_bot, dim_names)
       call register_restart_field(Til_restart, 'q_bot', Atmos%tr_bot(:,:,ivapor), dim_names)
-   end if
+  end if
 
 end subroutine register_atmos_restart_domain
 !#######################################################################
@@ -1234,24 +1228,9 @@ end subroutine atmos_model_end
       if(til_file_exist) then
         call register_atmos_restart_domain(Til_restart, Atmos)
         call write_restart(Til_restart)
+        call add_domain_dimension_data(Til_restart)
         call close_file(Til_restart)
       endif
-    else
-       if(present(timestamp)) call mpp_error ('atmos_model_mod',  &
-            'intermediate restart capability is not implemented for non-netcdf file', FATAL)
-       unit = open_restart_file ('RESTART/atmos_coupled.res', 'write')
-       if (mpp_pe() == mpp_root_pe()) then
-          write (unit) restart_format
-          write (unit) ipts, jpts, dto
-       endif
-       call write_data_to_be_removed ( unit, Atmos % lprec )
-       call write_data_to_be_removed ( unit, Atmos % fprec )
-       call write_data_to_be_removed ( unit, Atmos % gust  )
-       if(restart_tbot_qbot) then
-          call write_data_to_be_removed ( unit, Atmos % t_bot  )
-          call write_data_to_be_removed ( unit, Atmos % tr_bot(:,:,ivapor)  )
-       endif
-       call close_file_to_be_removed (unit)
     endif
 
   end subroutine atmos_model_local_restart
