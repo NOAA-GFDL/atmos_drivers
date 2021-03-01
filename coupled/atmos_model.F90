@@ -45,20 +45,16 @@ use mpp_mod,            only: mpp_pe, mpp_root_pe, mpp_clock_id, mpp_clock_begin
 use mpp_mod,            only: mpp_clock_end, CLOCK_COMPONENT, mpp_error, mpp_chksum
 use mpp_mod,            only: mpp_set_current_pelist
 use mpp_domains_mod,    only: domain2d, mpp_get_ntile_count
-#ifdef INTERNAL_FILE_NML
 use mpp_mod,            only: input_nml_file
-#else
-use fms_mod,            only: open_namelist_file
-#endif
-use fms_mod,            only: file_exist, error_mesg, field_size, FATAL, NOTE, WARNING
-use fms_mod,            only: fms_io_close_file => close_file,  write_version_number, stdlog, stdout
+use fms_mod,            only: error_mesg, FATAL, NOTE, WARNING
+use fms_mod,            only: write_version_number, stdlog, stdout
 use fms_mod,            only: clock_flag_default
 use fms_mod,            only: check_nml_error
 use fms2_io_mod,        only: FmsNetcdfFile_t, FmsNetcdfDomainFile_t, &
                               register_restart_field, register_axis, unlimited, &
                               open_file, read_restart, write_restart, close_file, &
                               register_field, write_data, register_variable_attribute, &
-                              get_global_io_domain_indices
+                              get_global_io_domain_indices, file_exists
 use time_manager_mod,   only: time_type, operator(+), get_time, operator(-)
 use field_manager_mod,  only: MODEL_ATMOS
 use tracer_manager_mod, only: get_number_tracers, get_tracer_index, NO_TRACER
@@ -771,19 +767,9 @@ subroutine atmos_model_init (Atmos, Time_init, Time, Time_step, &
              Cosp_rad(idx), &
              Moist_clouds(idx))
 
-   IF ( file_exist('input.nml')) THEN
-#ifdef INTERNAL_FILE_NML
+   IF ( file_exists('input.nml')) THEN
       read(input_nml_file, nml=atmos_model_nml, iostat=io)
       ierr = check_nml_error(io, 'atmos_model_nml')
-#else
-      unit = open_namelist_file ( )
-      ierr=1
-      do while (ierr /= 0)
-         read  (unit, nml=atmos_model_nml, iostat=io, end=10)
-         ierr = check_nml_error(io,'atmos_model_nml')
-      enddo
- 10     call fms_io_close_file (unit)
-#endif
    endif
    do_netcdf_restart = .true. !< Always use netcdf
 
@@ -902,7 +888,6 @@ subroutine atmos_model_init (Atmos, Time_init, Time, Time_step, &
    if (mpp_pe() == mpp_root_pe()) then
       unit = stdlog( )
       write (unit, nml=atmos_model_nml)
-      call fms_io_close_file (unit)
 !  number of tracers
       write (unit, '(a,i3)') 'Number of tracers =', ntrace
       write (unit, '(a,i3)') 'Number of prognostic tracers =', ntprog
