@@ -25,34 +25,24 @@ program atmos_model
 !
 !-----------------------------------------------------------------------
 
-#ifdef INTERNAL_FILE_NML
-use mpp_mod, only: input_nml_file
-#else
-use fms_mod, only: open_namelist_file
-#endif
-
+use          mpp_mod, only: input_nml_file
 use   atmosphere_mod, only: atmosphere_init, atmosphere_end, atmosphere, atmosphere_domain
-
 use time_manager_mod, only: time_type, set_time, get_time,  &
                             operator(+), operator (<), operator (>), &
                             operator (/=), operator (/), operator (*), &
                             set_calendar_type, set_date, get_date, days_in_year, days_in_month, &
                             NO_CALENDAR, THIRTY_DAY_MONTHS, NOLEAP, JULIAN, GREGORIAN, INVALID_CALENDAR
-
-use          fms_mod, only: file_exist, check_nml_error,                &
+use          fms_mod, only: check_nml_error,                &
                             error_mesg, FATAL, WARNING,                 &
                             mpp_pe, mpp_root_pe, fms_init, fms_end,     &
                             stdlog, stdout, write_version_number,       &
-                            open_restart_file, lowercase,               &
+                            lowercase,               &
                             mpp_clock_id, mpp_clock_begin,              &
-                            mpp_clock_end, CLOCK_COMPONENT, set_domain, nullify_domain
+                            mpp_clock_end, CLOCK_COMPONENT
 use       fms_io_mod, only: fms_io_exit
-
+use      fms2_io_mod, only: file_exists
 use  mpp_mod,         only: mpp_set_current_pelist
 use  mpp_domains_mod, only: domain2d
-use       mpp_io_mod, only: mpp_open, mpp_close, MPP_ASCII, MPP_OVERWR, &
-                            MPP_SEQUENTIAL, MPP_SINGLE, MPP_RDONLY, MPP_DELETE
-
 use diag_manager_mod, only: diag_manager_init, diag_manager_end, get_base_date
 
 use  field_manager_mod, only: MODEL_ATMOS
@@ -139,7 +129,11 @@ contains
    subroutine atmos_model_init
 
 !-----------------------------------------------------------------------
-    integer :: unit, ierr, io, logunit
+    integer :: time_stamp_unit !< Unif of the time_stamp file
+    integer :: stdout_unit !< Unit of stdout file
+    integer :: ascii_unit  !< Unit of a dummy ascii file
+    character(len=:), dimension(:), allocatable :: restart_file !< Restart file saved as a string
+    integer :: ierr, io, logunit
     integer :: ntrace, ntprog, ntdiag, ntfamily
     integer :: date(6)
     type (time_type) :: Run_length
@@ -165,17 +159,8 @@ contains
 
 !----- read namelist -------
 
-#ifdef INTERNAL_FILE_NML
-     read (input_nml_file, nml=main_nml, iostat=io)
-     ierr = check_nml_error(io, 'main_nml')
-#else
-   unit = open_namelist_file ( )
-   ierr=1; do while (ierr /= 0)
-          read  (unit, nml=main_nml, iostat=io, end=10)
-          ierr = check_nml_error (io, 'main_nml')
-   enddo
-10 call mpp_close (unit)
-#endif
+   read (input_nml_file, nml=main_nml, iostat=io)
+   ierr = check_nml_error(io, 'main_nml')
 
 !----- write namelist to logfile -----
 
@@ -203,10 +188,10 @@ contains
 
 !----- read restart file -----
 
-   if (file_exist('INPUT/atmos_model.res')) then
-       call mpp_open (unit, 'INPUT/atmos_model.res', action=MPP_RDONLY, nohdrs=.true.)
-       read  (unit,*) date
-       call mpp_close (unit)
+   if (file_exists('INPUT/atmos_model.res')) then
+       call ascii_read('INPUT/atmos_model.res', restart_file)
+       read  (restart_file(1),*) date
+       deallocate(restart_file)
    else
     ! use namelist time if restart file does not exist
       if(calendartype == NO_CALENDAR) then
@@ -283,10 +268,8 @@ contains
 !-----------------------------------------------------------------------
 !----- write time stamps (for start time and end time) ------
 
-      call mpp_open (unit, 'time_stamp.out', form=MPP_ASCII, action=MPP_OVERWR, &
-                     access=MPP_SEQUENTIAL, threading=MPP_SINGLE, nohdrs=.true. )
-
-      if ( mpp_pe() == mpp_root_pe() ) write (unit,20) date
+      if ( mpp_pe() == mpp_root_pe() ) open (newunit=time_stamp_unit, file='time_stamp.out', status='replace', form='formatted')
+      if ( mpp_pe() == mpp_root_pe() ) write (time_stamp_unit,20) date
 
 !     compute ending time in days,hours,minutes,seconds
       if(calendartype == NO_CALENDAR) then
@@ -300,9 +283,9 @@ contains
       else
         call get_date(Time_end, date(1), date(2), date(3), date(4), date(5), date(6))
       endif
-      if ( mpp_pe() == mpp_root_pe() ) write (unit,20) date
+      if ( mpp_pe() == mpp_root_pe() ) write (time_stamp_unit,20) date
 
-      call mpp_close (unit)
+      if ( mpp_pe() == mpp_root_pe() ) close (time_stamp_unit)
 
   20  format (6i7,2x,'day')   ! can handle day <= 999999
 
@@ -331,9 +314,9 @@ contains
 
 !$      call omp_set_num_threads(atmos_nthreads)
       if (mpp_pe() .eq. mpp_root_pe()) then
-        unit=stdout()
-        write(unit,*) ' starting ',atmos_nthreads,' OpenMP threads per MPI-task'
-        call flush(unit)
+        stdout_unit=stdout()
+        write(stdout_unit,*) ' starting ',atmos_nthreads,' OpenMP threads per MPI-task'
+        call flush(stdout_unit)
       endif
       base_cpu = get_cpu_affinity()
 !$OMP PARALLEL
@@ -350,8 +333,10 @@ contains
 !-----------------------------------------------------------------------
 !   open and close dummy file in restart dir to check if dir exists
       call mpp_set_current_pelist()
-      call mpp_open  (unit, 'RESTART/file' )
-      call mpp_close (unit, action=MPP_DELETE)
+    if ( mpp_pe().EQ.mpp_root_pe() ) then
+       open(newunit = ascii_unit, file='RESTART/file', status='replace', form='formatted')
+       close(ascii_unit,status="delete")
+    endif
 
 !  ---- terminate timing ----
    call mpp_clock_end (id_init)
@@ -365,7 +350,7 @@ contains
 
    subroutine atmos_model_end
 
-   integer :: unit, date(6)
+   integer :: restart_file_unit, date(6)
 !-----------------------------------------------------------------------
    call mpp_clock_begin (id_end)
 
@@ -394,11 +379,10 @@ contains
 !----- write restart file ------
 
       if ( mpp_pe() == mpp_root_pe() ) then
-           call mpp_open (unit, 'RESTART/atmos_model.res', form=MPP_ASCII, action=MPP_OVERWR, &
-                          access=MPP_SEQUENTIAL, threading=MPP_SINGLE, nohdrs=.true. )
-           write (unit,'(6i6,8x,a)') date, &
+           open(newunit = restart_file_unit, file='RESTART/atmos_model.res', status='replace', form='formatted')
+           write (restart_file_unit,'(6i6,8x,a)') date, &
                  'Current model time: year, month, day, hour, minute, second'
-           call mpp_close (unit)
+           close (restart_file_unit)
       endif
 
 !----- final output of diagnostic fields ----
