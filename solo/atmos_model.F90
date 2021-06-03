@@ -350,7 +350,7 @@ contains
 
    subroutine atmos_model_end
 
-   integer :: restat_file_unit, date(6)
+   integer :: restart_file_unit, date(6)
 !-----------------------------------------------------------------------
    call mpp_clock_begin (id_end)
 
@@ -382,7 +382,7 @@ contains
            open(newunit = restart_file_unit, file='RESTART/atmos_model.res', status='replace', form='formatted')
            write (restart_file_unit,'(6i6,8x,a)') date, &
                  'Current model time: year, month, day, hour, minute, second'
-           close (restat_file_unit)
+           close (restart_file_unit)
       endif
 
 !----- final output of diagnostic fields ----
