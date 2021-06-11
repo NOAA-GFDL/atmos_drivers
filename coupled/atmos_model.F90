@@ -43,7 +43,7 @@ module atmos_model_mod
 
 use mpp_mod,            only: mpp_pe, mpp_root_pe, mpp_clock_id, mpp_clock_begin
 use mpp_mod,            only: mpp_clock_end, CLOCK_COMPONENT, mpp_error, mpp_chksum
-use mpp_mod,            only: mpp_set_current_pelist
+use mpp_mod,            only: mpp_set_current_pelist, mpp_get_current_pelist, mpp_npes
 use mpp_domains_mod,    only: domain2d, mpp_get_ntile_count
 use mpp_mod,            only: input_nml_file
 use fms_mod,            only: error_mesg, FATAL, NOTE, WARNING
@@ -750,6 +750,7 @@ subroutine atmos_model_init (Atmos, Time_init, Time, Time_step, &
   type(FmsNetcdfFile_t)       ::  Atm_restart
   type(FmsNetcdfDomainFile_t) ::  Til_restart
   logical :: Atm_restart_exist, Til_restart_exist
+  integer, allocatable, dimension(:)   :: pes !< Array of pes in the current pelist
 !-----------------------------------------------------------------------
 
 !---- set the atmospheric model time ------
@@ -899,8 +900,13 @@ subroutine atmos_model_init (Atmos, Time_init, Time, Time_step, &
    dt = sec + 86400*day  ! integer seconds
 
    call atmosphere_resolution (mlon, mlat, global=.true.)
+
+   !< Get the current pelist
+   allocate(pes(mpp_npes()))
+   call mpp_get_current_pelist(pes)
+
    filename = 'INPUT/atmos_coupled.res.nc'
-   atm_restart_exist = open_file(Atm_restart,filename,"read", is_restart=.true.)
+   atm_restart_exist = open_file(Atm_restart,filename,"read", is_restart=.true., pelist=pes)
    if (atm_restart_exist) then
        if(mpp_pe() == mpp_root_pe() ) call mpp_error ('atmos_model_mod', &
                    'Reading netCDF formatted restart file: INPUT/atmos_coupled.res.nc', NOTE)
@@ -908,6 +914,8 @@ subroutine atmos_model_init (Atmos, Time_init, Time, Time_step, &
        call read_restart(Atm_restart)
        call close_file(Atm_restart)
    endif
+   deallocate(pes)
+
    til_restart_exist =  open_file(Til_restart,filename,"read", Atmos%domain, is_restart=.true.)
    if (til_restart_exist) then
        if(mpp_pe() == mpp_root_pe() ) call mpp_error ('atmos_model_mod', &
@@ -1001,7 +1009,10 @@ subroutine register_atmos_restart_domain(Til_restart, Atmos)
 
   character(len=8), dimension(3)       :: dim_names !< Array of dimensions
 
-  dim_names =  (/"xaxis_1", "yaxis_1", "Time"/)
+  dim_names(1) = "xaxis_1"
+  dim_names(2) = "yaxis_1"
+  dim_names(3) = "Time"
+
   call register_axis(Til_restart, dim_names(1), "x")
   call register_axis(Til_restart, dim_names(2), "y")
   if (.not. Til_restart%mode_is_append) call register_axis(Til_restart, dim_names(3), unlimited)
@@ -1186,8 +1197,14 @@ end subroutine atmos_model_end
     type(FmsNetcdfDomainFile_t) ::  Til_restart
     logical :: til_file_exist
     character(len=128) :: filename
+    integer, allocatable, dimension(:)   :: pes !< Array of pes in the current pelist
 
     if( do_netcdf_restart) then
+
+      !< Get the current pelist
+      allocate(pes(mpp_npes()))
+      call mpp_get_current_pelist(pes)
+
       if(mpp_pe() == mpp_root_pe()) then
          call mpp_error ('atmos_model_mod', 'Writing netCDF formatted restart file.', NOTE)
       endif
@@ -1198,11 +1215,13 @@ end subroutine atmos_model_end
          filename = "RESTART/atmos_coupled.res.nc"
       endif
 
-      if (open_file(Atm_restart,filename,"overwrite", is_restart=.true.)) then !scalar file
+      if (open_file(Atm_restart,filename,"overwrite", is_restart=.true., pelist=pes)) then !scalar file
         call register_atmos_restart_scalar(Atm_restart)
         call write_restart(Atm_restart)
         call close_file(Atm_restart)
       endif
+
+      deallocate(pes)
 
       if (mpp_get_ntile_count(Atmos%domain) == 1) then
          til_file_exist = open_file(Til_restart,filename,"append", Atmos%domain, is_restart=.true.)!domain file
