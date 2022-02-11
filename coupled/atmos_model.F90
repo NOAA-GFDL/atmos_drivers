@@ -466,6 +466,8 @@ subroutine update_atmos_model_down( Surface_boundary, Atmos )
     integer :: is, ie, js, je
     integer :: blk, ibs, ibe, jbs, jbe
     logical, save :: message = .true.
+    real, dimension(:,:), allocatable :: u_ref_tmp, v_ref_tmp, q_ref_tmp, t_ref_tmp
+    logical :: u_alloc, v_alloc, q_alloc, t_alloc
 !-----------------------------------------------------------------------
     call set_atmosphere_pelist()
     call mpp_clock_begin(atmClock)
@@ -496,6 +498,42 @@ subroutine update_atmos_model_down( Surface_boundary, Atmos )
     jec = Atm_block%jec
     npz = Atm_block%npz
 
+!--- avoid bounds check bug in gnu debug mode by passing in 0 arrays if *_ref pointers aren't set
+    u_alloc = .false. ; v_alloc=.false.
+    q_alloc = .false. ; t_alloc=.false.
+    if( .not. associated(Surface_boundary%u_ref)) then
+      allocate(u_ref_tmp(lbound(atmos%grid%area, 1):ubound(atmos%grid%area, 1), &
+                         lbound(atmos%grid%area, 2):ubound(atmos%grid%area, 2)))
+      u_ref_tmp = 0
+      u_alloc = .true.
+    else
+      u_ref_tmp =  surface_boundary%u_ref
+    endif
+    if( .not. associated(Surface_boundary%v_ref)) then
+      allocate(v_ref_tmp(lbound(atmos%grid%area, 1):ubound(atmos%grid%area, 1), &
+                         lbound(atmos%grid%area, 2):ubound(atmos%grid%area, 2)))
+      v_ref_tmp = 0
+      v_alloc = .true.
+    else
+      v_ref_tmp =  surface_boundary%v_ref
+    endif
+    if( .not. associated(Surface_boundary%q_ref)) then
+      allocate(q_ref_tmp(lbound(atmos%grid%area, 1):ubound(atmos%grid%area, 1), &
+                         lbound(atmos%grid%area, 2):ubound(atmos%grid%area, 2)))
+      q_ref_tmp = 0
+      q_alloc = .true.
+    else
+      q_ref_tmp =  surface_boundary%q_ref
+    endif
+    if( .not. associated(Surface_boundary%t_ref)) then
+      allocate(t_ref_tmp(lbound(atmos%grid%area, 1):ubound(atmos%grid%area, 1), &
+                         lbound(atmos%grid%area, 2):ubound(atmos%grid%area, 2)))
+      t_ref_tmp = 0
+      t_alloc = .true.
+    else
+      t_ref_tmp =  surface_boundary%t_ref
+    endif
+
 !$OMP parallel do default(shared) private(blk, isw, iew, jsw, jew, is, ie, js, je)
     do blk = 1,nxblocks*nyblocks
        isw = Atm_block%ibs(blk)
@@ -518,10 +556,10 @@ subroutine update_atmos_model_down( Surface_boundary, Atmos )
                                   Surface_boundary%frac_open_sea(isw:iew,jsw:jew), &
                                   Surface_boundary%albedo       (isw:iew,jsw:jew), &
                                   Surface_boundary%t            (isw:iew,jsw:jew), &
-                                  Surface_boundary%u_ref        (isw:iew,jsw:jew), & !bqx+
-                                  Surface_boundary%v_ref        (isw:iew,jsw:jew), & !bqx+
-                                  Surface_boundary%t_ref        (isw:iew,jsw:jew), &
-                                  Surface_boundary%q_ref        (isw:iew,jsw:jew), & ! cjg: PBL depth mods
+                                  u_ref_tmp                     (isw:iew,jsw:jew), & !bqx+
+                                  v_ref_tmp                     (isw:iew,jsw:jew), & !bqx+
+                                  t_ref_tmp                     (isw:iew,jsw:jew), &
+                                  q_ref_tmp                     (isw:iew,jsw:jew), & ! cjg: PBL depth mods
                                   Surface_boundary%u_star       (isw:iew,jsw:jew), &
                                   Surface_boundary%b_star       (isw:iew,jsw:jew), &
                                   Surface_boundary%q_star       (isw:iew,jsw:jew), &
@@ -535,6 +573,11 @@ subroutine update_atmos_model_down( Surface_boundary, Atmos )
                                   Rad_flux(1)%control, &
                                   Rad_flux(1)%block(blk) )
     enddo
+!--- deallocate placeholder arrays if used
+    if(u_alloc) deallocate(u_ref_tmp)
+    if(v_alloc) deallocate(v_ref_tmp)
+    if(t_alloc) deallocate(t_ref_tmp)
+    if(q_alloc) deallocate(q_ref_tmp)
 
     call physics_driver_down_endts (1, 1)
 
