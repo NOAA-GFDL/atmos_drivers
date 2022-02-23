@@ -1,21 +1,20 @@
 !***********************************************************************
-!*                   GNU General Public License                        *
-!* This file is a part of fvGFS.                                       *
-!*                                                                     *
-!* fvGFS is free software; you can redistribute it and/or modify it    *
-!* and are expected to follow the terms of the GNU General Public      *
-!* License as published by the Free Software Foundation; either        *
-!* version 2 of the License, or (at your option) any later version.    *
-!*                                                                     *
-!* fvGFS is distributed in the hope that it will be useful, but        *
-!* WITHOUT ANY WARRANTY; without even the implied warranty of          *
-!* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU   *
-!* General Public License for more details.                            *
-!*                                                                     *
-!* For the full text of the GNU General Public License,                *
-!* write to: Free Software Foundation, Inc.,                           *
-!*           675 Mass Ave, Cambridge, MA 02139, USA.                   *
-!* or see:   http://www.gnu.org/licenses/gpl.html                      *
+!*                   GNU Lesser General Public License
+!*
+!* This file is part of the GFDL Atmos Drivers project.
+!*
+!* This is free software: you can redistribute it and/or modify it under
+!* the terms of the GNU Lesser General Public License as published by
+!* the Free Software Foundation, either version 3 of the License, or (at
+!* your option) any later version.
+!*
+!* It is distributed in the hope that it will be useful, but WITHOUT
+!* ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+!* FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+!* for more details.
+!*
+!* You should have received a copy of the GNU Lesser General Public
+!* License along with FMS.  If not, see <http://www.gnu.org/licenses/>.
 !***********************************************************************
 module atmos_model_mod
 !-----------------------------------------------------------------------
@@ -88,7 +87,7 @@ use IPD_driver,         only: IPD_initialize, IPD_setup_step, &
                               IPD_radiation_step,             &
                               IPD_physics_step1,              &
                               IPD_physics_step2
-#ifdef STOCHY 
+#ifdef STOCHY
 use stochastic_physics, only: init_stochastic_physics,         &
                               run_stochastic_physics
 use stochastic_physics_sfc, only: run_stochastic_physics_sfc
@@ -117,7 +116,7 @@ public atmos_model_restart
 !<PUBLICTYPE >
  type atmos_data_type
      type (domain2d)               :: domain             ! domain decomposition
-     integer                       :: axes(4)            ! axis indices (returned by diag_manager) for the atmospheric grid 
+     integer                       :: axes(4)            ! axis indices (returned by diag_manager) for the atmospheric grid
                                                          ! (they correspond to the x, y, pfull, phalf axes)
      real,                 pointer, dimension(:,:) :: lon_bnd  => null() ! local longitude axis grid box corners in radians.
      real,                 pointer, dimension(:,:) :: lat_bnd  => null() ! local latitude axis grid box corners in radians.
@@ -129,7 +128,7 @@ public atmos_model_restart
      integer                       :: iau_offset         ! iau running window length
      integer, pointer              :: pelist(:) =>null() ! pelist where atmosphere is running.
      logical                       :: pe                 ! current pe.
-     type(grid_box_type)           :: grid               ! hold grid information needed for 2nd order conservative flux exchange 
+     type(grid_box_type)           :: grid               ! hold grid information needed for 2nd order conservative flux exchange
                                                          ! to calculate gradient on cubic sphere grid.
      integer                       :: layout(2)          ! computer task laytout
      logical                       :: regional           ! true if domain is regional
@@ -200,7 +199,7 @@ contains
 !   atmospheric tendencies for dynamics, radiation, vertical diffusion of
 !   momentum, tracers, and heat/moisture.  For heat/moisture only the
 !   downward sweep of the tridiagonal elimination is performed, hence
-!   the name "_down". 
+!   the name "_down".
 !</DESCRIPTION>
 
 !   <TEMPLATE>
@@ -344,7 +343,7 @@ subroutine atmos_model_init (Atmos, Time_init, Time, Time_step, iau_offset)
 
   type (atmos_data_type), intent(inout) :: Atmos
   type (time_type), intent(in) :: Time_init, Time, Time_step
-  integer, intent(in) :: iau_offset 
+  integer, intent(in) :: iau_offset
 !--- local variables ---
   integer :: unit, ntdiag, ntfamily, i, j, k
   integer :: mlon, mlat, nlon, nlat, nlev, sec, dt, sec_prev
@@ -366,7 +365,7 @@ subroutine atmos_model_init (Atmos, Time_init, Time, Time_step, iau_offset)
   integer :: kdt_prev
   character(len=32), allocatable, target :: tracer_names(:)
   integer :: coarse_diagnostic_axes(4)
-  integer :: nthrds 
+  integer :: nthrds
   !-----------------------------------------------------------------------
 
 !---- set the atmospheric model time ------
@@ -416,7 +415,7 @@ subroutine atmos_model_init (Atmos, Time_init, Time, Time_step, iau_offset)
    call atmosphere_hgt (Atmos%level_hgt, 'level', relative=.false., flip=.true.)
    call atmosphere_coarse_graining_parameters(Atmos%coarse_domain, Atmos%write_coarse_restart_files, Atmos%write_only_coarse_intermediate_restarts)
    call atmosphere_coarsening_strategy(Atmos%coarsening_strategy)
-   
+
 !-----------------------------------------------------------------------
 !--- before going any further check definitions for 'blocks'
 !-----------------------------------------------------------------------
@@ -631,7 +630,7 @@ subroutine update_atmos_model_state (Atmos)
   integer :: isec,seconds,isec_fhzero
   real(kind=kind_phys) :: time_int, time_intfull
   integer :: is, ie, js, je, kt
-  
+
     call set_atmosphere_pelist()
     call mpp_clock_begin(fv3Clock)
     call mpp_clock_begin(updClock)
@@ -653,7 +652,7 @@ subroutine update_atmos_model_state (Atmos)
        Atm(mygrid)%coarse_graining%write_coarse_diagnostics, &
        real(Atm(mygrid)%delp(is:ie,js:je,:), kind=kind_phys), &
        Atmos%coarsening_strategy, real(Atm(mygrid)%ptop, kind=kind_phys))
-    
+
     call get_time (Atmos%Time - diag_time, isec)
     call get_time (Atmos%Time - Atmos%Time_init, seconds)
 
@@ -723,7 +722,7 @@ subroutine atmos_model_end (Atmos)
 
 !-----------------------------------------------------------------------
 !---- termination routine for atmospheric model ----
-                                              
+
     call atmosphere_end (Atmos % Time, Atmos%grid)
     if (.not. dycore_only) then
        call FV3GFS_restart_write (IPD_Data, IPD_Restart, Atm_block, &
@@ -789,7 +788,7 @@ end subroutine atmos_model_restart
 ! </IN>
 !
 subroutine atmos_data_type_chksum(id, timestep, atm)
-type(atmos_data_type), intent(in) :: atm 
+type(atmos_data_type), intent(in) :: atm
     character(len=*), intent(in) :: id
     integer         , intent(in) :: timestep
     integer :: n, outunit
