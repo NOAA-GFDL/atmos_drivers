@@ -457,18 +457,9 @@ subroutine atmos_model_init (Atmos, Time_init, Time, Time_step, iau_offset)
    Init_parm%area            => Atmos%area
    Init_parm%tracer_names    => tracer_names
 
-#ifdef INTERNAL_FILE_NML
    allocate(Init_parm%input_nml_file, mold=input_nml_file)
    Init_parm%input_nml_file  => input_nml_file
    Init_parm%fn_nml='using internal file'
-#else
-   pelist_name=mpp_get_current_pelist_name()
-   Init_parm%fn_nml='input_'//trim(pelist_name)//'.nml'
-   inquire(FILE=Init_parm%fn_nml, EXIST=fexist)
-   if (.not. fexist ) then
-      Init_parm%fn_nml='input.nml'
-   endif
-#endif
 
    call IPD_initialize (IPD_Control, IPD_Data, IPD_Diag, IPD_Restart, Init_parm)
 
@@ -498,11 +489,7 @@ subroutine atmos_model_init (Atmos, Time_init, Time, Time_step, iau_offset)
    IPD_Control%kdt_prev = kdt_prev
 
 !--- initialize slab ocean model or mixed layer ocean model
-#ifdef INTERNAL_FILE_NML
    if (IPD_Control%do_ocean) call ocean_init (IPD_Control, Init_parm%logunit, input_nml_file)
-#else
-   if (IPD_Control%do_ocean) call ocean_init (IPD_Control, Init_parm%logunit)
-#endif
 
    Init_parm%blksz           => null()
    Init_parm%ak              => null()
