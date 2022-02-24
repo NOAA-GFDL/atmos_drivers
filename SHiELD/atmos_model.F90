@@ -46,14 +46,10 @@ use mpp_mod,            only: mpp_clock_end, CLOCK_COMPONENT, MPP_CLOCK_SYNC
 use mpp_mod,            only: mpp_min, mpp_max, mpp_error, mpp_chksum
 use mpp_domains_mod,    only: domain2d
 use mpp_mod,            only: mpp_get_current_pelist_name
-#ifdef INTERNAL_FILE_NML
-use mpp_mod,            only: input_nml_file
-#else
-use fms_mod,            only: open_namelist_file
-#endif
-use fms_mod,            only: file_exist, error_mesg
-use fms_mod,            only: close_file, write_version_number, stdlog, stdout
-use fms_mod,            only: clock_flag_default
+use mpp_mod,            only: input_nml_file, stdlog, stdout
+use fms2_io_mod,        only: file_exists
+use fms_mod,            only: write_version_number
+use fms_mod,            only: clock_flag_default, error_mesg
 use fms_mod,            only: check_nml_error
 use diag_manager_mod,   only: diag_send_complete_instant
 use time_manager_mod,   only: time_type, get_time, get_date, &
@@ -388,19 +384,9 @@ subroutine atmos_model_init (Atmos, Time_init, Time, Time_step, iau_offset)
    call atmosphere_init (Atmos%Time_init, Atmos%Time, Atmos%Time_step,&
                          Atmos%grid, Atmos%area, IAU_Data)
 
-   IF ( file_exist('input.nml')) THEN
-#ifdef INTERNAL_FILE_NML
+   IF ( file_exists('input.nml')) THEN
       read(input_nml_file, nml=atmos_model_nml, iostat=io)
       ierr = check_nml_error(io, 'atmos_model_nml')
-#else
-      unit = open_namelist_file ( )
-      ierr=1
-      do while (ierr /= 0)
-         read  (unit, nml=atmos_model_nml, iostat=io, end=10)
-         ierr = check_nml_error(io,'atmos_model_nml')
-      enddo
- 10     call close_file (unit)
-#endif
    endif
 !-----------------------------------------------------------------------
    call atmosphere_resolution (nlon, nlat, global=.false.)
@@ -557,15 +543,11 @@ subroutine atmos_model_init (Atmos, Time_init, Time, Time_step, iau_offset)
      endif
    endif
 
-   !---- print version number to logfile ----
-
+   !--- print version number to logfile
    call write_version_number ( version, tagname )
+
    !--- write the namelist to a log file
-   if (mpp_pe() == mpp_root_pe()) then
-      unit = stdlog( )
-      write (unit, nml=atmos_model_nml)
-      call close_file (unit)
-   endif
+   write (stdlog(), nml=atmos_model_nml)
 
    !--- get fdiag
 #ifdef GFS_PHYS
