@@ -82,18 +82,27 @@ implicit none
 !-----------------------------------------------------------------------
    type(domain2d), save :: atmos_domain  ! This variable must be treated as read-only
 !-----------------------------------------------------------------------
+   character(len=17) :: calendar = '                 '  !< The calendar type used by the current integration.  Valid values are
+                                                        !! consistent with the time_manager module: 'gregorian', 'julian',
+                                                        !! 'noleap', or 'thirty_day'. The value 'no_calendar' cannot be used
+                                                        !! because the time_manager's date !! functions are used.
+                                                        !! All values must be lower case.
+   integer, dimension(4) :: current_time = (/ 0, 0, 0, 0/) !< The current time integration starts with (DD,HH,MM,SS)
+   integer :: years=0    !< Number of years the current integration will be run
+   integer :: months=0   !< Number of months the current integration will be run
+   integer :: days=0     !< Number of days the current integration will be run
+   integer :: hours=0    !< Number of hours the current integration will be run
+   integer :: minutes=0  !< Number of minutes the current integration will be run
+   integer :: seconds=0  !< Number of seconds the current integration will be run
+   integer :: dt_atmos = 0  !< Atmospheric model time step in seconds
+   integer :: memuse_interval = 72  !< Output memory statistics every <N> time steps
+   integer :: atmos_nthreads = 1  !< Number of OpenMP threads to use in the atmosphere
+   logical :: use_hyper_thread = .false.  !< If .TRUE>, affinity placement (if activated) will consider virtual cores
+                                          !! in the placement algorithm
 
-      character(len=32) :: calendar="no_calendar" ! valid options are "no_calendar", "thirty_day_months", "noleap", "julian", "gregorian"
-      integer, dimension(4) :: current_time = (/ 0, 0, 0, 0 /)
-      integer :: years=0, months=0, days=0, hours=0, minutes=0, seconds=0
-      integer :: dt_atmos = 0
-      integer :: memuse_interval = 72
-      integer :: atmos_nthreads = 1
-      logical :: use_hyper_thread = .false.
-
-      namelist /main_nml/ calendar, current_time, dt_atmos,  &
-                          years, months, days, hours, minutes, seconds, &
-                          memuse_interval, atmos_nthreads, use_hyper_thread
+   namelist /main_nml/ calendar, current_time, dt_atmos,  &
+                       years, months, days, hours, minutes, seconds, &
+                       memuse_interval, atmos_nthreads, use_hyper_thread
 
 !#######################################################################
 
