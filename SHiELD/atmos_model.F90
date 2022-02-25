@@ -95,7 +95,7 @@ use FV3GFS_io_mod,      only: FV3GFS_restart_read, FV3GFS_restart_write, &
                               sfc_data_override
 use FV3GFS_io_mod,      only: register_diag_manager_controlled_diagnostics, register_coarse_diag_manager_controlled_diagnostics
 use FV3GFS_io_mod,      only: send_diag_manager_controlled_diagnostic_data
-use fv_iau_mod,         only: iau_external_data_type,getiauforcing,iau_initialize,replay_initialize
+use fv_iau_mod,         only: iau_external_data_type,getiauforcing,iau_initialize
 use module_ocean,       only: ocean_init
 !-----------------------------------------------------------------------
 
@@ -480,11 +480,7 @@ subroutine atmos_model_init (Atmos, Time_init, Time, Time_step, iau_offset)
    Atm(mygrid)%flagstruct%do_diss_est = IPD_Control%do_skeb
 
 !  initialize the IAU module
-   if ( Atm(mygrid)%flagstruct%replay == 1 ) then
-      call replay_initialize (IPD_Control, IAU_data)
-   else
-      call iau_initialize (IPD_Control,IAU_data,Init_parm)
-   endif
+   call iau_initialize (IPD_Control,IAU_data,Init_parm)
 
    IPD_Control%kdt_prev = kdt_prev
 
