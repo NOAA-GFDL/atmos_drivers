@@ -25,6 +25,7 @@ program atmos_model
 !
 !-----------------------------------------------------------------------
 
+use fms_affinity_mod, only: fms_affinity_set
 use          mpp_mod, only: input_nml_file
 use   atmosphere_mod, only: atmosphere_init, atmosphere_end, atmosphere, atmosphere_domain
 use time_manager_mod, only: time_type, set_time, get_time,  &
@@ -40,7 +41,7 @@ use          fms_mod, only: check_nml_error,                &
                             mpp_clock_id, mpp_clock_begin,              &
                             mpp_clock_end, CLOCK_COMPONENT
 use       fms_io_mod, only: fms_io_exit
-use      fms2_io_mod, only: file_exists
+use      fms2_io_mod, only: file_exists, ascii_read
 use  mpp_mod,         only: mpp_set_current_pelist
 use  mpp_domains_mod, only: domain2d
 use diag_manager_mod, only: diag_manager_init, diag_manager_end, get_base_date
@@ -81,21 +82,32 @@ implicit none
 !-----------------------------------------------------------------------
    type(domain2d), save :: atmos_domain  ! This variable must be treated as read-only
 !-----------------------------------------------------------------------
+   character(len=17) :: calendar = '                 '  !< The calendar type used by the current integration.  Valid values are
+                                                        !! consistent with the time_manager module: 'gregorian', 'julian',
+                                                        !! 'noleap', or 'thirty_day'. The value 'no_calendar' cannot be used
+                                                        !! because the time_manager's date !! functions are used.
+                                                        !! All values must be lower case.
+   integer, dimension(4) :: current_time = (/ 0, 0, 0, 0/) !< The current time integration starts with (DD,HH,MM,SS)
+   integer :: years=0    !< Number of years the current integration will be run
+   integer :: months=0   !< Number of months the current integration will be run
+   integer :: days=0     !< Number of days the current integration will be run
+   integer :: hours=0    !< Number of hours the current integration will be run
+   integer :: minutes=0  !< Number of minutes the current integration will be run
+   integer :: seconds=0  !< Number of seconds the current integration will be run
+   integer :: dt_atmos = 0  !< Atmospheric model time step in seconds
+   integer :: memuse_interval = 72  !< Output memory statistics every <N> time steps
+   integer :: atmos_nthreads = 1  !< Number of OpenMP threads to use in the atmosphere
+   logical :: use_hyper_thread = .false.  !< If .TRUE>, affinity placement (if activated) will consider virtual cores
+                                          !! in the placement algorithm
 
-      character(len=32) :: calendar="no_calendar" ! valid options are "no_calendar", "thirty_day_months", "noleap", "julian", "gregorian"
-      integer, dimension(4) :: current_time = (/ 0, 0, 0, 0 /)
-      integer :: years=0, months=0, days=0, hours=0, minutes=0, seconds=0
-      integer :: dt_atmos = 0
-      integer :: memuse_interval = 72
-      integer :: atmos_nthreads = 1
-
-      namelist /main_nml/ calendar, current_time, dt_atmos,  &
-                          years, months, days, hours, minutes, seconds, memuse_interval, atmos_nthreads
+   namelist /main_nml/ calendar, current_time, dt_atmos,  &
+                       years, months, days, hours, minutes, seconds, &
+                       memuse_interval, atmos_nthreads, use_hyper_thread
 
 !#######################################################################
 
- call fms_init ( )
- call atmos_model_init
+ call fms_init ()
+ call atmos_model_init ()
 
 !   ------ atmosphere integration loop -------
 
@@ -137,8 +149,7 @@ contains
     integer :: ntrace, ntprog, ntdiag, ntfamily
     integer :: date(6)
     type (time_type) :: Run_length
-!$    integer :: omp_get_thread_num
-    integer :: get_cpu_affinity, base_cpu
+!$  integer :: omp_get_thread_num
     integer :: yr, mo, total_days, total_seconds
 !-----------------------------------------------------------------------
 !----- initialization timing identifiers ----
@@ -234,13 +245,6 @@ contains
 
 !----- set initial and current time types ------
 !----- set run length and compute ending time -----
-#ifdef MARS_GCM
-!               Dont allow year, month or minutes in the Mars model
-    if ( date_init(1) /= 0 .or. date_init(2) /= 0 .or. date_init(5) /= 0) then
-         call error_mesg ('program atmos_model', 'invalid base base - '// &
-                          'year, month and minutes must all be zero in the Mars model', FATAL)
-    endif
-#endif MARS_GCM
     if(calendartype == NO_CALENDAR) then
        Time_init  = set_time(date_init(4)*int(SECONDS_PER_HOUR)+date_init(5)*int(SECONDS_PER_MINUTE)+date_init(6),date_init(3))
        Time       = set_time(date     (4)*int(SECONDS_PER_HOUR)+date     (5)*int(SECONDS_PER_MINUTE)+date     (6),date     (3))
@@ -275,11 +279,7 @@ contains
       if(calendartype == NO_CALENDAR) then
         call get_time ( Time_end, date(6), date(3) )  ! gets sec,days
         date(4) = date(6)/int(SECONDS_PER_HOUR); date(6) = date(6) - date(4)*int(SECONDS_PER_HOUR)
-#ifdef MARS_GCM
-        date(5) = 0                                ; date(6) = date(6) - date(5)*int(SECONDS_PER_MINUTE)
-#else
         date(5) = date(6)/int(SECONDS_PER_MINUTE)  ; date(6) = date(6) - date(5)*int(SECONDS_PER_MINUTE)
-#endif
       else
         call get_date(Time_end, date(1), date(2), date(3), date(4), date(5), date(6))
       endif
@@ -312,20 +312,13 @@ contains
 !-----------------------------------------------------------------------
 !------ initialize atmospheric model ------
 
-!$      call omp_set_num_threads(atmos_nthreads)
+!$    call omp_set_num_threads(atmos_nthreads)
+      call fms_affinity_set('Atmos Program', use_hyper_thread, atmos_nthreads)
       if (mpp_pe() .eq. mpp_root_pe()) then
         stdout_unit=stdout()
         write(stdout_unit,*) ' starting ',atmos_nthreads,' OpenMP threads per MPI-task'
         call flush(stdout_unit)
       endif
-      base_cpu = get_cpu_affinity()
-!$OMP PARALLEL
-!$      call set_cpu_affinity(base_cpu + omp_get_thread_num())
-#ifdef DEBUG
-!$      write(6,*) 'PE: ',mpp_pe(),'  thread_num', omp_get_thread_num(),'  affinity:',get_cpu_affinity()
-!$      call flush(6)
-#endif
-!$OMP END PARALLEL
 
       call atmosphere_init (Time_init, Time, Time_step_atmos)
       call atmosphere_domain(atmos_domain)
@@ -352,7 +345,7 @@ contains
 
    integer :: restart_file_unit, date(6)
 !-----------------------------------------------------------------------
-   call mpp_clock_begin (id_end)
+      call mpp_clock_begin (id_end)
 
       call atmosphere_end
 
@@ -362,11 +355,7 @@ contains
         date(1:2) = 0
         call get_time ( Time, date(6), date(3) )
         date(4) = date(6)/int(SECONDS_PER_HOUR); date(6) = date(6) - date(4)*int(SECONDS_PER_HOUR)
-#ifdef MARS_GCM
-        date(5) = 0                              ; date(6) = date(6) - date(5)*int(SECONDS_PER_MINUTE)
-#else
         date(5) = date(6)/int(SECONDS_PER_MINUTE); date(6) = date(6) - date(5)*int(SECONDS_PER_MINUTE)
-#endif MARS_GCM
       else
         call get_date(Time, date(1), date(2), date(3), date(4), date(5), date(6))
       endif
@@ -386,11 +375,7 @@ contains
       endif
 
 !----- final output of diagnostic fields ----
-      call set_domain(atmos_domain)  ! This assumes all output fields are on the atmos domain
-
       call diag_manager_end (Time)
-
-      call nullify_domain()
 
       call mpp_clock_end (id_end)
 !-----------------------------------------------------------------------
