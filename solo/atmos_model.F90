@@ -25,31 +25,12 @@ program atmos_model
 !
 !-----------------------------------------------------------------------
 
-use fms_affinity_mod, only: fms_affinity_set
-use          mpp_mod, only: input_nml_file
-use   atmosphere_mod, only: atmosphere_init, atmosphere_end, atmosphere, atmosphere_domain
-use time_manager_mod, only: time_type, set_time, get_time,  &
-                            operator(+), operator (<), operator (>), &
-                            operator (/=), operator (/), operator (*), &
-                            set_calendar_type, set_date, get_date, days_in_year, days_in_month, &
-                            NO_CALENDAR, THIRTY_DAY_MONTHS, NOLEAP, JULIAN, GREGORIAN, INVALID_CALENDAR
-use          fms_mod, only: check_nml_error,                &
-                            error_mesg, FATAL, WARNING,                 &
-                            mpp_pe, mpp_root_pe, fms_init, fms_end,     &
-                            stdlog, stdout, write_version_number,       &
-                            lowercase,               &
-                            mpp_clock_id, mpp_clock_begin,              &
-                            mpp_clock_end, CLOCK_COMPONENT
-use       fms_io_mod, only: fms_io_exit
-use      fms2_io_mod, only: file_exists, ascii_read
-use  mpp_mod,         only: mpp_set_current_pelist
-use  mpp_domains_mod, only: domain2d
-use diag_manager_mod, only: diag_manager_init, diag_manager_end, get_base_date
+use FMS
+use FMSconstants
+use atmosphere_mod, only: atmosphere_init, atmosphere_end, atmosphere, atmosphere_domain
 
-use  field_manager_mod, only: MODEL_ATMOS
-use tracer_manager_mod, only: register_tracers
-use       memutils_mod, only: print_memuse_stats
-use   constants_mod,    only: SECONDS_PER_HOUR,  SECONDS_PER_MINUTE
+!--- FMS old io
+use fms_io_mod, only: fms_io_exit!< This can't be removed until fms_io is not used at all
 
 implicit none
 
@@ -145,7 +126,7 @@ contains
     integer :: stdout_unit !< Unit of stdout file
     integer :: ascii_unit  !< Unit of a dummy ascii file
     character(len=:), dimension(:), allocatable :: restart_file !< Restart file saved as a string
-    integer :: ierr, io, logunit
+    integer :: ierr, io, logunit, dt_size
     integer :: ntrace, ntprog, ntdiag, ntfamily
     integer :: date(6)
     type (time_type) :: Run_length
@@ -312,24 +293,35 @@ contains
 !-----------------------------------------------------------------------
 !------ initialize atmospheric model ------
 
-!$    call omp_set_num_threads(atmos_nthreads)
-      call fms_affinity_set('Atmos Program', use_hyper_thread, atmos_nthreads)
-      if (mpp_pe() .eq. mpp_root_pe()) then
-        stdout_unit=stdout()
-        write(stdout_unit,*) ' starting ',atmos_nthreads,' OpenMP threads per MPI-task'
-        call flush(stdout_unit)
-      endif
+!$ call omp_set_num_threads(atmos_nthreads)
+   call fms_affinity_set('Atmos Program', use_hyper_thread, atmos_nthreads)
+   if (mpp_pe() .eq. mpp_root_pe()) then
+     stdout_unit=stdout()
+     write(stdout_unit,*) ' starting ',atmos_nthreads,' OpenMP threads per MPI-task'
+     call flush(stdout_unit)
+   endif
 
-      call atmosphere_init (Time_init, Time, Time_step_atmos)
-      call atmosphere_domain(atmos_domain)
+   call atmosphere_init (Time_init, Time, Time_step_atmos)
+   call atmosphere_domain(atmos_domain)
+
+   if (file_exists('data_table')) then
+     inquire(file='data_table', size=dt_size)
+     if (dt_size > 0) then
+       call data_override_init(Atm_domain_in = atmos_domain)
+     else
+       call error_mesg ('program atmos_model', 'empty data table, skipping data override init', NOTE)
+     endif
+   else
+     call error_mesg ('program atmos_model', 'no data table, skipping data override init', NOTE)
+   endif
 
 !-----------------------------------------------------------------------
 !   open and close dummy file in restart dir to check if dir exists
-      call mpp_set_current_pelist()
-    if ( mpp_pe().EQ.mpp_root_pe() ) then
-       open(newunit = ascii_unit, file='RESTART/file', status='replace', form='formatted')
-       close(ascii_unit,status="delete")
-    endif
+   call mpp_set_current_pelist()
+   if ( mpp_pe().EQ.mpp_root_pe() ) then
+     open(newunit = ascii_unit, file='RESTART/file', status='replace', form='formatted')
+     close(ascii_unit,status="delete")
+   endif
 
 !  ---- terminate timing ----
    call mpp_clock_end (id_init)
