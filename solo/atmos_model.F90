@@ -63,11 +63,9 @@ implicit none
 !-----------------------------------------------------------------------
    type(domain2d), save :: atmos_domain  ! This variable must be treated as read-only
 !-----------------------------------------------------------------------
-   character(len=17) :: calendar = '                 '  !< The calendar type used by the current integration.  Valid values are
+   character(len=17) :: calendar = 'no_calendar      '  !< The calendar type used by the current integration.  Valid values are
                                                         !! consistent with the time_manager module: 'gregorian', 'julian',
-                                                        !! 'noleap', or 'thirty_day'. The value 'no_calendar' cannot be used
-                                                        !! because the time_manager's date !! functions are used.
-                                                        !! All values must be lower case.
+                                                        !! 'noleap', or 'thirty_day'. All values must be lower case.
    integer, dimension(4) :: current_time = (/ 0, 0, 0, 0/) !< The current time integration starts with (DD,HH,MM,SS)
    integer :: years=0    !< Number of years the current integration will be run
    integer :: months=0   !< Number of months the current integration will be run
