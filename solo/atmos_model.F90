@@ -302,7 +302,8 @@ contains
    call atmosphere_init (Time_init, Time, Time_step_atmos)
    call atmosphere_domain(atmos_domain)
 
-   call data_override_init(Atm_domain_in = atmos_domain)
+   !----- add back in if needed -----
+   !call data_override_init(Atm_domain_in = atmos_domain)
 
 !-----------------------------------------------------------------------
 !   open and close dummy file in restart dir to check if dir exists
