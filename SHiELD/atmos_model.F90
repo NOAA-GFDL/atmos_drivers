@@ -154,13 +154,13 @@ logical :: debug           = .false.
 logical :: sync            = .false.
 logical :: first_time_step = .true.
 logical :: fprint          = .true.
-logical :: enforce_rst_cksum = .true. ! enforce or override data integrity restart checksums
+logical :: ignore_rst_cksum = .false. ! enforce (.false.) or override (.true.) data integrity restart checksums
 real, dimension(4096) :: fdiag = 0. ! xic: TODO: this is hard coded, space can run out in some cases. Should make it allocatable.
 logical :: fdiag_override = .false. ! lmh: if true overrides fdiag and fhzer: all quantities are zeroed out
                                     ! after every calcluation, output interval and accumulation/avg/max/min
                                     ! are controlled by diag_manager, fdiag controls output interval only
 namelist /atmos_model_nml/ blocksize, chksum_debug, dycore_only, debug, sync, first_time_step, fdiag, fprint, &
-                           fdiag_override, enforce_rst_cksum
+                           fdiag_override, ignore_rst_cksum
 type (time_type) :: diag_time, diag_time_fhzero
 logical :: fdiag_fix = .false.
 
@@ -517,7 +517,7 @@ subroutine atmos_model_init (Atmos, Time_init, Time, Time_step, iau_offset)
        call register_coarse_diag_manager_controlled_diagnostics(Time, coarse_diagnostic_axes)
     endif
    if (.not. dycore_only) &
-      call FV3GFS_restart_read (IPD_Data, IPD_Restart, Atm_block, IPD_Control, Atmos%domain_for_read, enforce_rst_cksum)
+      call FV3GFS_restart_read (IPD_Data, IPD_Restart, Atm_block, IPD_Control, Atmos%domain_for_read, ignore_rst_cksum)
       if (chksum_debug) then
         if (mpp_pe() == mpp_root_pe()) print *,'RESTART READ  ', IPD_Control%kdt, IPD_Control%fhour
         call FV3GFS_IPD_checksum(IPD_Control, IPD_Data, Atm_block)
