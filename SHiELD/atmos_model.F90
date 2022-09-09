@@ -510,7 +510,7 @@ subroutine atmos_model_init (Atmos, Time_init, Time, Time_step, iau_offset)
        call register_coarse_diag_manager_controlled_diagnostics(Time, coarse_diagnostic_axes)
     endif
    if (.not. dycore_only) &
-      call FV3GFS_restart_read (IPD_Data, IPD_Restart, Atm_block, IPD_Control, Atmos%domain)
+      call FV3GFS_restart_read (IPD_Data, IPD_Restart, Atm_block, IPD_Control, Atmos%domain, .true.)
       if (chksum_debug) then
         if (mpp_pe() == mpp_root_pe()) print *,'RESTART READ  ', IPD_Control%kdt, IPD_Control%fhour
         call FV3GFS_IPD_checksum(IPD_Control, IPD_Data, Atm_block)
