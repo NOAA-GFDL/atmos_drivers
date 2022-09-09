@@ -112,6 +112,7 @@ public atmos_model_restart
 !<PUBLICTYPE >
  type atmos_data_type
      type (domain2d)               :: domain             ! domain decomposition
+     type (domain2d)               :: domain_for_read    ! domain decomposition for reads
      integer                       :: axes(4)            ! axis indices (returned by diag_manager) for the atmospheric grid
                                                          ! (they correspond to the x, y, pfull, phalf axes)
      real,                 pointer, dimension(:,:) :: lon_bnd  => null() ! local longitude axis grid box corners in radians.
@@ -153,9 +154,13 @@ logical :: debug           = .false.
 logical :: sync            = .false.
 logical :: first_time_step = .true.
 logical :: fprint          = .true.
+logical :: ignore_rst_cksum = .false. ! enforce (.false.) or override (.true.) data integrity restart checksums
 real, dimension(4096) :: fdiag = 0. ! xic: TODO: this is hard coded, space can run out in some cases. Should make it allocatable.
-logical :: fdiag_override = .false. ! lmh: if true overrides fdiag and fhzer: all quantities are zeroed out after every calcluation, output interval and accumulation/avg/max/min are controlled by diag_manager, fdiag controls output interval only
-namelist /atmos_model_nml/ blocksize, chksum_debug, dycore_only, debug, sync, first_time_step, fdiag, fprint, fdiag_override
+logical :: fdiag_override = .false. ! lmh: if true overrides fdiag and fhzer: all quantities are zeroed out
+                                    ! after every calcluation, output interval and accumulation/avg/max/min
+                                    ! are controlled by diag_manager, fdiag controls output interval only
+namelist /atmos_model_nml/ blocksize, chksum_debug, dycore_only, debug, sync, first_time_step, fdiag, fprint, &
+                           fdiag_override, ignore_rst_cksum
 type (time_type) :: diag_time, diag_time_fhzero
 logical :: fdiag_fix = .false.
 
@@ -392,14 +397,16 @@ subroutine atmos_model_init (Atmos, Time_init, Time, Time_step, iau_offset)
    call atmosphere_resolution (nlon, nlat, global=.false.)
    call atmosphere_resolution (mlon, mlat, global=.true.)
    call alloc_atmos_data_type (nlon, nlat, Atmos)
-   call atmosphere_domain (Atmos%domain, Atmos%layout, Atmos%regional, Atmos%bounded_domain)
+   call atmosphere_domain (Atmos%domain, Atmos%domain_for_read, Atmos%layout, Atmos%regional, &
+                           Atmos%bounded_domain)
    call atmosphere_diag_axes (Atmos%axes)
    call atmosphere_etalvls (Atmos%ak, Atmos%bk, flip=.true.)
    call atmosphere_grid_bdry (Atmos%lon_bnd, Atmos%lat_bnd, global=.false.)
    call atmosphere_grid_ctr (Atmos%lon, Atmos%lat)
    call atmosphere_hgt (Atmos%layer_hgt, 'layer', relative=.false., flip=.true.)
    call atmosphere_hgt (Atmos%level_hgt, 'level', relative=.false., flip=.true.)
-   call atmosphere_coarse_graining_parameters(Atmos%coarse_domain, Atmos%write_coarse_restart_files, Atmos%write_only_coarse_intermediate_restarts)
+   call atmosphere_coarse_graining_parameters(Atmos%coarse_domain, Atmos%write_coarse_restart_files, &
+                                              Atmos%write_only_coarse_intermediate_restarts)
    call atmosphere_coarsening_strategy(Atmos%coarsening_strategy)
 
 !-----------------------------------------------------------------------
@@ -510,7 +517,7 @@ subroutine atmos_model_init (Atmos, Time_init, Time, Time_step, iau_offset)
        call register_coarse_diag_manager_controlled_diagnostics(Time, coarse_diagnostic_axes)
     endif
    if (.not. dycore_only) &
-      call FV3GFS_restart_read (IPD_Data, IPD_Restart, Atm_block, IPD_Control, Atmos%domain, .true.)
+      call FV3GFS_restart_read (IPD_Data, IPD_Restart, Atm_block, IPD_Control, Atmos%domain_for_read, ignore_rst_cksum)
       if (chksum_debug) then
         if (mpp_pe() == mpp_root_pe()) print *,'RESTART READ  ', IPD_Control%kdt, IPD_Control%fhour
         call FV3GFS_IPD_checksum(IPD_Control, IPD_Data, Atm_block)
@@ -543,7 +550,7 @@ subroutine atmos_model_init (Atmos, Time_init, Time, Time_step, iau_offset)
       if (nint(fdiag(2)) == 0) then
          fdiag_fix = .true.
          do i = 2, size(fdiag,1)
-            fdiag(i) = fdiag(i-1) + fdiag(1)
+            fdiag(i) = fdiag(1) * real(i)
          enddo
       endif
       if (mpp_pe() == mpp_root_pe()) write(6,*) "---fdiag",fdiag(1:40)
@@ -621,13 +628,13 @@ subroutine update_atmos_model_state (Atmos)
     call get_time (Atmos%Time - diag_time, isec)
     call get_time (Atmos%Time - Atmos%Time_init, seconds)
 
+    time_int = real(isec)
     if (ANY(nint(fdiag(:)*3600.0) == seconds) .or. (fdiag_fix .and. mod(seconds, nint(fdiag(1)*3600.0)) .eq. 0) .or. (IPD_Control%kdt == 1 .and. first_time_step) ) then
       if (mpp_pe() == mpp_root_pe()) write(6,*) "---isec,seconds",isec,seconds
       if (mpp_pe() == mpp_root_pe()) write(6,*) ' gfs diags time since last bucket empty: ',time_int/3600.,'hrs'
       call atmosphere_nggps_diag(Atmos%Time)
     endif
     if (ANY(nint(fdiag(:)*3600.0) == seconds) .or. (fdiag_fix .and. mod(seconds, nint(fdiag(1)*3600.0)) .eq. 0) .or. first_time_step) then
-      time_int = real(isec)
       if(Atmos%iau_offset > zero) then
         if( time_int - Atmos%iau_offset*3600. > zero ) then
           time_int = time_int - Atmos%iau_offset*3600.
