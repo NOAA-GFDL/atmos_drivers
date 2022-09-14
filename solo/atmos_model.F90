@@ -66,6 +66,7 @@ implicit none
    character(len=17) :: calendar = 'no_calendar      '  !< The calendar type used by the current integration.  Valid values are
                                                         !! consistent with the time_manager module: 'gregorian', 'julian',
                                                         !! 'noleap', or 'thirty_day'. All values must be lower case.
+                                                        !! In solo_core the default is no_calendar
    integer, dimension(4) :: current_time = (/ 0, 0, 0, 0/) !< The current time integration starts with (DD,HH,MM,SS)
    integer :: years=0    !< Number of years the current integration will be run
    integer :: months=0   !< Number of months the current integration will be run
