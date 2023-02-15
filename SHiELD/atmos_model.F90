@@ -674,7 +674,7 @@ subroutine update_atmos_model_state (Atmos)
         call cosp2_driver (IPD_Control, IPD_Data(:)%Grid, IPD_Data(:)%Statein, &
                            IPD_Data(:)%Stateout, IPD_Data(:)%Sfcprop, &
                            IPD_Data(:)%Radtend, IPD_Data(:)%Intdiag, Init_parm)
-      
+
       endif
 #endif
 #if defined (COSP_OFFLINE)
@@ -689,7 +689,7 @@ subroutine update_atmos_model_state (Atmos)
         call cosp2_offline (IPD_Control, IPD_Data(:)%Statein, &
                            IPD_Data(:)%Stateout, IPD_Data(:)%Sfcprop, &
                            IPD_Data(:)%Radtend, IPD_Data(:)%Intdiag, Init_parm)
-      
+
       endif
 #endif
       call gfdl_diag_output(Atmos%Time, Atm_block, IPD_Data, IPD_Control%nx, IPD_Control%ny, fprint, &
