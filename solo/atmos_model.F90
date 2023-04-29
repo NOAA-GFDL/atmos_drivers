@@ -29,9 +29,6 @@ use FMS
 use FMSconstants
 use atmosphere_mod, only: atmosphere_init, atmosphere_end, atmosphere, atmosphere_domain
 
-!--- FMS old io
-use fms_io_mod, only: fms_io_exit!< This can't be removed until fms_io is not used at all
-
 implicit none
 
 !-----------------------------------------------------------------------
@@ -66,6 +63,7 @@ implicit none
    character(len=17) :: calendar = 'no_calendar      '  !< The calendar type used by the current integration.  Valid values are
                                                         !! consistent with the time_manager module: 'gregorian', 'julian',
                                                         !! 'noleap', or 'thirty_day'. All values must be lower case.
+                                                        !! In solo_core the default is no_calendar
    integer, dimension(4) :: current_time = (/ 0, 0, 0, 0/) !< The current time integration starts with (DD,HH,MM,SS)
    integer :: years=0    !< Number of years the current integration will be run
    integer :: months=0   !< Number of months the current integration will be run
@@ -112,7 +110,6 @@ implicit none
 !   ------ end of atmospheric time step loop -----
 
  call atmos_model_end
- call fms_io_exit
  call fms_end
 
 contains
