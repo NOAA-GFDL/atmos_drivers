@@ -86,6 +86,7 @@ implicit none
 !#######################################################################
 
  call fms_init ()
+ call mpp_set_current_pelist()
  call atmos_model_init ()
 
 !   ------ atmosphere integration loop -------
@@ -105,6 +106,7 @@ implicit none
 
     enddo
 
+    call mpp_set_current_pelist()
     call mpp_clock_end (id_loop)
 
 !   ------ end of atmospheric time step loop -----
@@ -359,6 +361,7 @@ contains
 !----- final output of diagnostic fields ----
       call diag_manager_end (Time)
 
+      call mpp_set_current_pelist()
       call mpp_clock_end (id_end)
 !-----------------------------------------------------------------------
 
