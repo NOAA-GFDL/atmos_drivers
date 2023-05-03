@@ -29,9 +29,6 @@ use FMS
 use FMSconstants
 use atmosphere_mod, only: atmosphere_init, atmosphere_end, atmosphere, atmosphere_domain
 
-!--- FMS old io
-use fms_io_mod, only: fms_io_exit!< This can't be removed until fms_io is not used at all
-
 implicit none
 
 !-----------------------------------------------------------------------
@@ -111,7 +108,6 @@ implicit none
 !   ------ end of atmospheric time step loop -----
 
  call atmos_model_end
- call fms_io_exit
  call fms_end
 
 contains
