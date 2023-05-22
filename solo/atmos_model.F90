@@ -84,7 +84,6 @@ implicit none
 !#######################################################################
 
  call fms_init ()
- call mpp_set_current_pelist()
  call atmos_model_init ()
 
 !   ------ atmosphere integration loop -------
