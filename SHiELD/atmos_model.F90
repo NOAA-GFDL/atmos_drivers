@@ -370,6 +370,7 @@ subroutine atmos_model_init (Atmos, Time_init, Time, Time_step, iau_offset)
   character(len=64) :: filename, filename2, pelist_name
   character(len=132) :: text
   logical :: p_hydro, hydro, fexist
+  logical :: do_inline_mp, do_cosp
   logical, save :: block_message = .true.
   integer :: bdat(8), cdat(8)
   integer :: ntracers
@@ -422,7 +423,8 @@ subroutine atmos_model_init (Atmos, Time_init, Time, Time_step, iau_offset)
 !-----------------------------------------------------------------------
 !--- before going any further check definitions for 'blocks'
 !-----------------------------------------------------------------------
-   call atmosphere_control_data (isc, iec, jsc, jec, nlev, p_hydro, hydro, tile_num)
+   call atmosphere_control_data (isc, iec, jsc, jec, nlev, p_hydro, hydro, tile_num, &
+                                 do_inline_mp, do_cosp)
    call define_blocks_packed ('atmos_model', Atm_block, isc, iec, jsc, jec, nlev, &
                               blocksize, block_message)
 
@@ -473,6 +475,10 @@ subroutine atmos_model_init (Atmos, Time_init, Time, Time_step, iau_offset)
    Init_parm%xlat            => Atmos%lat
    Init_parm%area            => Atmos%area
    Init_parm%tracer_names    => tracer_names
+!--- setup IPD_Control
+   IPD_Control%dycore_hydrostatic = hydro
+   IPD_Control%do_inline_mp = do_inline_mp
+   IPD_Control%do_cosp = do_cosp
 
    allocate(Init_parm%input_nml_file, mold=input_nml_file)
    Init_parm%input_nml_file  => input_nml_file
