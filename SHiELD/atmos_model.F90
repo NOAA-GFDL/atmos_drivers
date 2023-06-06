@@ -475,10 +475,9 @@ subroutine atmos_model_init (Atmos, Time_init, Time, Time_step, iau_offset)
    Init_parm%xlat            => Atmos%lat
    Init_parm%area            => Atmos%area
    Init_parm%tracer_names    => tracer_names
-!--- setup IPD_Control
-   IPD_Control%dycore_hydrostatic = hydro
-   IPD_Control%do_inline_mp = do_inline_mp
-   IPD_Control%do_cosp = do_cosp
+   Init_parm%hydro           = hydro
+   Init_parm%do_inline_mp    = do_inline_mp
+   Init_parm%do_cosp         = do_cosp
 
    allocate(Init_parm%input_nml_file, mold=input_nml_file)
    Init_parm%input_nml_file  => input_nml_file
