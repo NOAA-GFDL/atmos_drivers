@@ -41,9 +41,9 @@ implicit none
 !       ----- model time -----
 
    integer :: calendartype = INVALID_CALENDAR
-   type (time_type) :: Time, Time_init, Time_end, Time_step_atmos
+   type (FmsTime_type) :: Time, Time_init, Time_end, Time_step_atmos
    integer :: num_atmos_calls, na
-   type (time_type) :: Time_tmp ! used to facilitate some operations on time_type variables.
+   type (FmsTime_type) :: Time_tmp ! used to facilitate some operations on FmsTime_type variables.
    integer :: days_tmp          ! used together with Time_tmp
 
 ! ----- model initial date -----
@@ -58,7 +58,7 @@ implicit none
 !-----------------------------------------------------------------------
    character(len=80) :: text
 !-----------------------------------------------------------------------
-   type(domain2d), save :: atmos_domain  ! This variable must be treated as read-only
+   type(FmsMppDomain2D), save :: atmos_domain  ! This variable must be treated as read-only
 !-----------------------------------------------------------------------
    character(len=17) :: calendar = 'no_calendar      '  !< The calendar type used by the current integration.  Valid values are
                                                         !! consistent with the time_manager module: 'gregorian', 'julian',
@@ -88,7 +88,7 @@ implicit none
 
 !   ------ atmosphere integration loop -------
 
-    call mpp_clock_begin (id_loop)
+    call fms_mpp_clock_begin (id_loop)
 
     do na = 1, num_atmos_calls
 
@@ -98,12 +98,12 @@ implicit none
 
        if(modulo(na,memuse_interval) == 0) then
          write( text,'(a,i4)' )'Main loop at timestep=',na
-         call print_memuse_stats(text)
+         call fms_memutils_print_memuse_stats(text)
        endif
 
     enddo
 
-    call mpp_clock_end (id_loop)
+    call fms_mpp_clock_end (id_loop)
 
 !   ------ end of atmospheric time step loop -----
 
@@ -124,59 +124,59 @@ contains
     integer :: ierr, io, logunit
     integer :: ntrace, ntprog, ntdiag, ntfamily
     integer :: date(6)
-    type (time_type) :: Run_length
+    type (FmsTime_type) :: Run_length
 !$  integer :: omp_get_thread_num
     integer :: yr, mo, total_days, total_seconds
 !-----------------------------------------------------------------------
 !----- initialization timing identifiers ----
 
- id_init = mpp_clock_id ('MAIN: initialization', grain=CLOCK_COMPONENT)
- id_loop = mpp_clock_id ('MAIN: time loop'     , grain=CLOCK_COMPONENT)
- id_end  = mpp_clock_id ('MAIN: termination'   , grain=CLOCK_COMPONENT)
+ id_init = fms_mpp_clock_id ('MAIN: initialization', grain=CLOCK_COMPONENT)
+ id_loop = fms_mpp_clock_id ('MAIN: time loop'     , grain=CLOCK_COMPONENT)
+ id_end  = fms_mpp_clock_id ('MAIN: termination'   , grain=CLOCK_COMPONENT)
 
- logunit = stdlog()
+ logunit = fms_mpp_stdlog()
 
- call mpp_clock_begin (id_init)
+ call fms_mpp_clock_begin (id_init)
 
 !-------------------------------------------
 ! how many tracers have been registered?
 !  (will print number below)
-   call register_tracers ( MODEL_ATMOS, ntrace, ntprog, ntdiag, ntfamily )
+   call fms_tracer_manager_register_tracers ( MODEL_ATMOS, ntrace, ntprog, ntdiag, ntfamily )
 
 
 !----- read namelist -------
 
-   read (input_nml_file, nml=main_nml, iostat=io)
+   read (fms_mpp_input_nml_file, nml=main_nml, iostat=io)
    ierr = check_nml_error(io, 'main_nml')
 
 !----- write namelist to logfile -----
 
-   call write_version_number ("program atmos_model", version)
-   if ( mpp_pe() == mpp_root_pe() ) write (logunit, nml=main_nml)
+   call fms_write_version_number ("program atmos_model", version)
+   if ( fms_mpp_pe() == fms_mpp_root_pe() ) write (logunit, nml=main_nml)
 
    if (dt_atmos == 0) then
      call error_mesg ('program atmos_model', 'dt_atmos has not been specified', FATAL)
    endif
 
-   if(lowercase(calendar) == 'no_calendar') then
+   if(fms_mpp_lowercase(calendar) == 'no_calendar') then
      calendartype = NO_CALENDAR
-   else if(lowercase(calendar) == 'thirty_day_months') then
+   else if(fms_mpp_lowercase(calendar) == 'thirty_day_months') then
      calendartype = THIRTY_DAY_MONTHS
-   else if(lowercase(calendar) == 'noleap') then
+   else if(fms_mpp_lowercase(calendar) == 'noleap') then
      calendartype = NOLEAP
-   else if(lowercase(calendar) == 'julian') then
+   else if(fms_mpp_lowercase(calendar) == 'julian') then
      calendartype = JULIAN
-   else if(lowercase(calendar) == 'gregorian') then
+   else if(fms_mpp_lowercase(calendar) == 'gregorian') then
      calendartype = GREGORIAN
    else
      call error_mesg ('program atmos_model', trim(calendar)//' is an invalid value for calendar', FATAL)
    endif
-   call set_calendar_type(calendartype)
+   call fms_time_manager_set_calendar_type(calendartype)
 
 !----- read restart file -----
 
-   if (file_exists('INPUT/atmos_model.res')) then
-       call ascii_read('INPUT/atmos_model.res', restart_file)
+   if (fms2_io_file_exists('INPUT/atmos_model.res')) then
+       call fms2_io_ascii_read('INPUT/atmos_model.res', restart_file)
        read  (restart_file(1),*) date
        deallocate(restart_file)
    else
@@ -192,14 +192,14 @@ contains
 
 !----- write current/initial date actually used to logfile file -----
 
-    if ( mpp_pe() == mpp_root_pe() ) then
+    if ( fms_mpp_pe() == fms_mpp_root_pe() ) then
       write (logunit,16) date
     endif
 
  16 format ('  current time used = ',i4,'-',i2,'-',i2,1x,i3,2(':',i2.2))
 
 !  print number of tracers to logfile
-   if (mpp_pe() == mpp_root_pe()) then
+   if (fms_mpp_pe() == fms_mpp_root_pe()) then
         write (logunit, '(a,i3)') 'Number of tracers =', ntrace
         write (logunit, '(a,i3)') 'Number of prognostic tracers =', ntprog
         write (logunit, '(a,i3)') 'Number of diagnostic tracers =', ntdiag
@@ -208,7 +208,7 @@ contains
 !-----------------------------------------------------------------------
 !------ initialize diagnostics manager ------
 
-    call diag_manager_init
+    call fms_diag_init
 
 !----- always override initial/base date with diag_manager value -----
 
@@ -216,52 +216,52 @@ contains
 !      this base date is typically the starting date for the
 !      experiment and is subtracted from the current date
 
-    call get_base_date ( date_init(1), date_init(2), date_init(3), &
+    call fms_diag_get_base_date ( date_init(1), date_init(2), date_init(3), &
                          date_init(4), date_init(5), date_init(6)  )
 
 !----- set initial and current time types ------
 !----- set run length and compute ending time -----
     if(calendartype == NO_CALENDAR) then
-       Time_init  = set_time(date_init(4)*int(SECONDS_PER_HOUR)+date_init(5)*int(SECONDS_PER_MINUTE)+date_init(6),date_init(3))
-       Time       = set_time(date     (4)*int(SECONDS_PER_HOUR)+date     (5)*int(SECONDS_PER_MINUTE)+date     (6),date     (3))
-       Run_length = set_time(       hours*int(SECONDS_PER_HOUR)+     minutes*int(SECONDS_PER_MINUTE)+     seconds,days        )
+       Time_init  = fms_time_manager_set_time(date_init(4)*int(SECONDS_PER_HOUR)+date_init(5)*int(SECONDS_PER_MINUTE)+date_init(6),date_init(3))
+       Time       = fms_time_manager_set_time(date     (4)*int(SECONDS_PER_HOUR)+date     (5)*int(SECONDS_PER_MINUTE)+date     (6),date     (3))
+       Run_length = fms_time_manager_set_time(       hours*int(SECONDS_PER_HOUR)+     minutes*int(SECONDS_PER_MINUTE)+     seconds,days        )
     else
-       Time_init  = set_date(date_init(1),date_init(2), date_init(3),date_init(4),date_init(5),date_init(6))
-       Time       = set_date(date(1),date(2),date(3),date(4),date(5),date(6))
+       Time_init  = fms_time_manager_set_date(date_init(1),date_init(2), date_init(3),date_init(4),date_init(5),date_init(6))
+       Time       = fms_time_manager_set_date(date(1),date(2),date(3),date(4),date(5),date(6))
        Time_tmp = Time
        total_days = 0
        do yr=1,years
-         days_tmp = days_in_year(Time_tmp)
+         days_tmp = fms_time_manager_days_in_year(Time_tmp)
          total_days = total_days + days_tmp
-         Time_tmp = Time_tmp + set_time(0,days_tmp)
+         Time_tmp = Time_tmp + fms_time_manager_set_time(0,days_tmp)
        enddo
        do mo=1,months
-         days_tmp = days_in_month(Time_tmp)
+         days_tmp = fms_time_manager_days_in_month(Time_tmp)
          total_days = total_days + days_tmp
-         Time_tmp = Time_tmp + set_time(0,days_tmp)
+         Time_tmp = Time_tmp + fms_time_manager_set_time(0,days_tmp)
        enddo
        total_days = total_days + days
        total_seconds = hours*3600 + minutes*60 + seconds
-       Run_length    = set_time (total_seconds,total_days)
+       Run_length    = fms_time_manager_set_time (total_seconds,total_days)
     endif
     Time_end   = Time + Run_length
 !-----------------------------------------------------------------------
 !----- write time stamps (for start time and end time) ------
 
-      if ( mpp_pe() == mpp_root_pe() ) open (newunit=time_stamp_unit, file='time_stamp.out', status='replace', form='formatted')
-      if ( mpp_pe() == mpp_root_pe() ) write (time_stamp_unit,20) date
+      if ( fms_mpp_pe() == fms_mpp_root_pe() ) open (newunit=time_stamp_unit, file='time_stamp.out', status='replace', form='formatted')
+      if ( fms_mpp_pe() == fms_mpp_root_pe() ) write (time_stamp_unit,20) date
 
 !     compute ending time in days,hours,minutes,seconds
       if(calendartype == NO_CALENDAR) then
-        call get_time ( Time_end, date(6), date(3) )  ! gets sec,days
+        call fms_time_manager_get_time ( Time_end, date(6), date(3) )  ! gets sec,days
         date(4) = date(6)/int(SECONDS_PER_HOUR); date(6) = date(6) - date(4)*int(SECONDS_PER_HOUR)
         date(5) = date(6)/int(SECONDS_PER_MINUTE)  ; date(6) = date(6) - date(5)*int(SECONDS_PER_MINUTE)
       else
-        call get_date(Time_end, date(1), date(2), date(3), date(4), date(5), date(6))
+        call fms_time_manager_get_date(Time_end, date(1), date(2), date(3), date(4), date(5), date(6))
       endif
-      if ( mpp_pe() == mpp_root_pe() ) write (time_stamp_unit,20) date
+      if ( fms_mpp_pe() == fms_mpp_root_pe() ) write (time_stamp_unit,20) date
 
-      if ( mpp_pe() == mpp_root_pe() ) close (time_stamp_unit)
+      if ( fms_mpp_pe() == fms_mpp_root_pe() ) close (time_stamp_unit)
 
   20  format (6i7,2x,'day')   ! can handle day <= 999999
 
@@ -270,7 +270,7 @@ contains
 !    determine number of iterations through the time integration loop
 !    must be evenly divisible
 
-      Time_step_atmos = set_time (dt_atmos,0)
+      Time_step_atmos = fms_time_manager_set_time (dt_atmos,0)
       num_atmos_calls = Run_length / Time_step_atmos
 
 !-----------------------------------------------------------------------
@@ -290,8 +290,8 @@ contains
 
 !$ call omp_set_num_threads(atmos_nthreads)
    call fms_affinity_set('Atmos Program', use_hyper_thread, atmos_nthreads)
-   if (mpp_pe() .eq. mpp_root_pe()) then
-     stdout_unit=stdout()
+   if (fms_mpp_pe() .eq. fms_mpp_root_pe()) then
+     stdout_unit=fms_mpp_stdout()
      write(stdout_unit,*) ' starting ',atmos_nthreads,' OpenMP threads per MPI-task'
      call flush(stdout_unit)
    endif
@@ -304,18 +304,18 @@ contains
 
 !-----------------------------------------------------------------------
 !   open and close dummy file in restart dir to check if dir exists
-   call mpp_set_current_pelist()
-   if ( mpp_pe().EQ.mpp_root_pe() ) then
+   call fms_mpp_set_current_pelist()
+   if ( fms_mpp_pe().EQ.fms_mpp_root_pe() ) then
      open(newunit = ascii_unit, file='RESTART/file', status='replace', form='formatted')
      close(ascii_unit,status="delete")
    endif
 
 !  ---- terminate timing ----
-   call mpp_clock_end (id_init)
+   call fms_mpp_clock_end (id_init)
 
 !-----------------------------------------------------------------------
 
-   call print_memuse_stats('atmos_model_init')
+   call fms_memutils_print_memuse_stats('atmos_model_init')
    end subroutine atmos_model_init
 
 !#######################################################################
@@ -324,7 +324,7 @@ contains
 
    integer :: restart_file_unit, date(6)
 !-----------------------------------------------------------------------
-      call mpp_clock_begin (id_end)
+      call fms_mpp_clock_begin (id_end)
 
       call atmosphere_end
 
@@ -332,11 +332,11 @@ contains
 
       if(calendartype == NO_CALENDAR) then
         date(1:2) = 0
-        call get_time ( Time, date(6), date(3) )
+        call fms_time_manager_get_time ( Time, date(6), date(3) )
         date(4) = date(6)/int(SECONDS_PER_HOUR); date(6) = date(6) - date(4)*int(SECONDS_PER_HOUR)
         date(5) = date(6)/int(SECONDS_PER_MINUTE); date(6) = date(6) - date(5)*int(SECONDS_PER_MINUTE)
       else
-        call get_date(Time, date(1), date(2), date(3), date(4), date(5), date(6))
+        call fms_time_manager_get_date(Time, date(1), date(2), date(3), date(4), date(5), date(6))
       endif
 
 !----- check time versus expected ending time ----
@@ -346,7 +346,7 @@ contains
 
 !----- write restart file ------
 
-      if ( mpp_pe() == mpp_root_pe() ) then
+      if ( fms_mpp_pe() == fms_mpp_root_pe() ) then
            open(newunit = restart_file_unit, file='RESTART/atmos_model.res', status='replace', form='formatted')
            write (restart_file_unit,'(6i6,8x,a)') date, &
                  'Current model time: year, month, day, hour, minute, second'
@@ -354,9 +354,9 @@ contains
       endif
 
 !----- final output of diagnostic fields ----
-      call diag_manager_end (Time)
+      call fms_diag_end (Time)
 
-      call mpp_clock_end (id_end)
+      call fms_mpp_clock_end (id_end)
 !-----------------------------------------------------------------------
 
    end subroutine atmos_model_end
