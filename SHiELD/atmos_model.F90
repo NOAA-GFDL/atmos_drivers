@@ -650,7 +650,7 @@ subroutine update_atmos_model_state (Atmos)
           time_intfull = time_intfull - Atmos%iau_offset*3600.
         endif
       endif
-      call gfdl_diag_output(Atmos%Time, Atm_block, IPD_Data, IPD_Control%nx, IPD_Control%ny, fprint, &
+      call gfdl_diag_output(Atmos%Time, Atm_block, IPD_Data, IPD_Control, IPD_Control%nx, IPD_Control%ny, fprint, &
                             IPD_Control%levs, 1, 1, 1.d0, time_int, time_intfull, &
                             IPD_Control%fhswr, IPD_Control%fhlwr, &
                             mod(seconds, nint(fdiag(1)*3600.0)) .eq. 0, &
