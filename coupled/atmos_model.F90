@@ -532,11 +532,13 @@ subroutine update_atmos_model_down( Surface_boundary, Atmos )
                                   Surface_boundary%dtaudv       (isw:iew,jsw:jew), &
                                   Surface_boundary%u_flux       (isw:iew,jsw:jew), &
                                   Surface_boundary%v_flux       (isw:iew,jsw:jew), &
+#ifdef use_am5phys
                                   Surface_boundary%shflx        (isw:iew,jsw:jew), & ! ZNT 04/29/2020 - Required by HanEDMF
                                   Surface_boundary%lhflx        (isw:iew,jsw:jew), & ! ZNT 04/29/2020 - Required by HanEDMF
                                   Surface_boundary%wind         (isw:iew,jsw:jew), & ! ZNT 04/29/2020 - Required by HanEDMF
                                   Surface_boundary%thv_atm      (isw:iew,jsw:jew), & ! ZNT 05/03/2020 - Required by HanEDMF
                                   Surface_boundary%thv_surf     (isw:iew,jsw:jew), & ! ZNT 05/03/2020 - Required by HanEDMF
+#endif
                                   Physics_tendency%block(blk),   &
                                   Atmos%Surf_diff, &
                                   Atmos%gust(is:ie,js:je), &
