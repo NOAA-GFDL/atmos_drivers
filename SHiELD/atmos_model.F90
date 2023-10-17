@@ -111,6 +111,9 @@ private
 public update_atmos_radiation_physics
 public update_atmos_model_state
 public update_atmos_model_dynamics
+public update_atmos_pre_radiation
+public update_atmos_radiation
+public update_atmos_physics
 public atmos_model_init, atmos_model_end, atmos_data_type
 public atmos_model_restart
 public Atm_block, IPD_Control, IPD_Data
@@ -221,8 +224,19 @@ contains
 !   compute/exchange fluxes with other component models.  All fields in this
 !   variable type are allocated for the global grid (without halo regions).
 ! </INOUT>
+subroutine update_atmos_radiation_physics(Atmos)
+  type (atmos_data_type), intent(in) :: Atmos
 
-subroutine update_atmos_radiation_physics (Atmos)
+  call update_atmos_pre_radiation(Atmos)
+
+  if (.not. dycore_only) then
+    call update_atmos_radiation(Atmos)
+    call update_atmos_physics(Atmos)
+  end if
+
+end subroutine update_atmos_radiation_physics
+
+subroutine update_atmos_pre_radiation (Atmos)
 !-----------------------------------------------------------------------
   type (atmos_data_type), intent(in) :: Atmos
 !--- local variables---
@@ -278,6 +292,20 @@ subroutine update_atmos_radiation_physics (Atmos)
 #endif
 
       call mpp_clock_end(setupClock)
+    endif
+  end subroutine update_atmos_pre_radiation
+
+  subroutine update_atmos_radiation (Atmos)
+!-----------------------------------------------------------------------
+      type (atmos_data_type), intent(in) :: Atmos
+!--- local variables---
+      integer :: nb, jdat(8), rc
+      integer :: nthrds
+#ifdef OPENMP
+      nthrds = omp_get_max_threads()
+#else
+      nthrds = 1
+#endif
 
       if (mpp_pe() == mpp_root_pe() .and. debug) write(6,*) "radiation driver"
 !--- execute the IPD atmospheric radiation subcomponent (RRTM)
@@ -295,6 +323,21 @@ subroutine update_atmos_radiation_physics (Atmos)
         if (mpp_pe() == mpp_root_pe()) print *,'RADIATION STEP  ', IPD_Control%kdt, IPD_Control%fhour
         call FV3GFS_IPD_checksum(IPD_Control, IPD_Data, Atm_block)
       endif
+
+  end subroutine update_atmos_radiation
+
+  subroutine update_atmos_physics (Atmos)
+!-----------------------------------------------------------------------
+      type (atmos_data_type), intent(in) :: Atmos
+!--- local variables---
+      integer :: nb, jdat(8), rc
+      integer :: nthrds
+
+#ifdef OPENMP
+      nthrds = omp_get_max_threads()
+#else
+      nthrds = 1
+#endif
 
       if (mpp_pe() == mpp_root_pe() .and. debug) write(6,*) "physics driver"
 !--- execute the IPD atmospheric physics step1 subcomponent (main physics driver)
@@ -331,12 +374,11 @@ subroutine update_atmos_radiation_physics (Atmos)
       endif
       call getiauforcing(IPD_Control,IAU_data)
       if (mpp_pe() == mpp_root_pe() .and. debug) write(6,*) "end of radiation and physics step"
-    endif
 
     call mpp_clock_end(shieldClock)
 
 !-----------------------------------------------------------------------
- end subroutine update_atmos_radiation_physics
+ end subroutine update_atmos_physics
 ! </SUBROUTINE>
 
 
