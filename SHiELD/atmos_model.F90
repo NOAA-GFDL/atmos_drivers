@@ -113,6 +113,7 @@ public update_atmos_model_state
 public update_atmos_model_dynamics
 public atmos_model_init, atmos_model_end, atmos_data_type
 public atmos_model_restart
+public Atm_block, IPD_Control, IPD_Data
 !-----------------------------------------------------------------------
 
 !<PUBLICTYPE >
