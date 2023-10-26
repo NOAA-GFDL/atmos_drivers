@@ -205,9 +205,9 @@ type land_ice_atmos_boundary_type
    real, dimension(:,:),   pointer :: q_star         =>null() ! moisture scale
    real, dimension(:,:),   pointer :: shflx          =>null() ! sensible heat flux !miz
    real, dimension(:,:),   pointer :: lhflx          =>null() ! latent heat flux   !miz
-   real, dimension(:,:),   pointer :: wind           =>null() ! surface wind   !ZNT 04/29/2020
-   real, dimension(:,:),   pointer :: thv_atm        =>null() ! surface air theta_v  !ZNT 05/03/2020
-   real, dimension(:,:),   pointer :: thv_surf       =>null() ! surface theta_v      !ZNT 05/03/2020
+   real, dimension(:,:),   pointer :: wind           =>null() ! surface wind
+   real, dimension(:,:),   pointer :: thv_atm        =>null() ! surface air theta_v
+   real, dimension(:,:),   pointer :: thv_surf       =>null() ! surface theta_v
    real, dimension(:,:),   pointer :: rough_mom      =>null() ! surface roughness (used for momentum)
    real, dimension(:,:),   pointer :: frac_open_sea  =>null() ! non-seaice fraction (%)
    real, dimension(:,:,:), pointer :: data           =>null() !collective field for "named" fields above
@@ -533,11 +533,11 @@ subroutine update_atmos_model_down( Surface_boundary, Atmos )
                                   Surface_boundary%u_flux       (isw:iew,jsw:jew), &
                                   Surface_boundary%v_flux       (isw:iew,jsw:jew), &
 #ifdef use_am5phys
-                                  Surface_boundary%shflx        (isw:iew,jsw:jew), & ! ZNT 04/29/2020 - Required by HanEDMF
-                                  Surface_boundary%lhflx        (isw:iew,jsw:jew), & ! ZNT 04/29/2020 - Required by HanEDMF
-                                  Surface_boundary%wind         (isw:iew,jsw:jew), & ! ZNT 04/29/2020 - Required by HanEDMF
-                                  Surface_boundary%thv_atm      (isw:iew,jsw:jew), & ! ZNT 05/03/2020 - Required by HanEDMF
-                                  Surface_boundary%thv_surf     (isw:iew,jsw:jew), & ! ZNT 05/03/2020 - Required by HanEDMF
+                                  Surface_boundary%shflx        (isw:iew,jsw:jew), & ! shflx    required by HanEDMF
+                                  Surface_boundary%lhflx        (isw:iew,jsw:jew), & ! evap     required by HanEDMF
+                                  Surface_boundary%wind         (isw:iew,jsw:jew), & ! sfc wind required by HanEDMF
+                                  Surface_boundary%thv_atm      (isw:iew,jsw:jew), & ! 2m thv   required by HanEDMF
+                                  Surface_boundary%thv_surf     (isw:iew,jsw:jew), & ! sfc thv  required by HanEDMF
 #endif
                                   Physics_tendency%block(blk),   &
                                   Atmos%Surf_diff, &
@@ -1425,9 +1425,9 @@ subroutine lnd_ice_atm_bnd_type_chksum(id, timestep, bnd_type)
     write(outunit,100) 'lnd_ice_atm_bnd_type%shflx         ',mpp_chksum(bnd_type%shflx          )!miz
     write(outunit,100) 'lnd_ice_atm_bnd_type%lhflx         ',mpp_chksum(bnd_type%lhflx          )!miz
 #endif
-    write(outunit,100) 'lnd_ice_atm_bnd_type%wind          ',mpp_chksum(bnd_type%wind           )!ZNT
-    write(outunit,100) 'lnd_ice_atm_bnd_type%thv_atm       ',mpp_chksum(bnd_type%thv_atm        )!ZNT
-    write(outunit,100) 'lnd_ice_atm_bnd_type%thv_surf      ',mpp_chksum(bnd_type%thv_surf       )!ZNT
+    write(outunit,100) 'lnd_ice_atm_bnd_type%wind          ',mpp_chksum(bnd_type%wind           )
+    write(outunit,100) 'lnd_ice_atm_bnd_type%thv_atm       ',mpp_chksum(bnd_type%thv_atm        )
+    write(outunit,100) 'lnd_ice_atm_bnd_type%thv_surf      ',mpp_chksum(bnd_type%thv_surf       )
     write(outunit,100) 'lnd_ice_atm_bnd_type%rough_mom     ',mpp_chksum(bnd_type%rough_mom      )
 !    write(outunit,100) 'lnd_ice_atm_bnd_type%data          ',mpp_chksum(bnd_type%data           )
 
