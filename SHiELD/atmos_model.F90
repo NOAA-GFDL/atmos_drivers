@@ -82,7 +82,7 @@ use IPD_typedefs,       only: IPD_init_type, IPD_control_type, &
 use IPD_driver,         only: IPD_initialize, IPD_setup_step, &
                               IPD_radiation_step,             &
                               IPD_physics_step1,              &
-                              IPD_physics_step2
+                              IPD_physics_step2, IPD_physics_end
 #ifdef STOCHY
 use stochastic_physics, only: init_stochastic_physics,         &
                               run_stochastic_physics
@@ -97,6 +97,12 @@ use FV3GFS_io_mod,      only: register_diag_manager_controlled_diagnostics, regi
 use FV3GFS_io_mod,      only: send_diag_manager_controlled_diagnostic_data
 use fv_iau_mod,         only: iau_external_data_type,getiauforcing,iau_initialize
 use module_ocean,       only: ocean_init
+#if defined (USE_COSP)
+use cosp2_test,         only: cosp2_driver
+#endif
+#if defined (COSP_OFFLINE)
+use cosp2_test,         only: cosp2_offline
+#endif
 !-----------------------------------------------------------------------
 
 implicit none
@@ -107,6 +113,7 @@ public update_atmos_model_state
 public update_atmos_model_dynamics
 public atmos_model_init, atmos_model_end, atmos_data_type
 public atmos_model_restart
+public Atm_block, IPD_Control, IPD_Data
 !-----------------------------------------------------------------------
 
 !<PUBLICTYPE >
@@ -144,7 +151,7 @@ public atmos_model_restart
 end type atmos_data_type
 !</PUBLICTYPE >
 
-integer :: fv3Clock, getClock, overrideClock, updClock, setupClock, radClock, physClock
+integer :: fv3Clock, getClock, overrideClock, setupClock, radClock, physClock, diagClock, shieldClock
 
 !-----------------------------------------------------------------------
 integer :: blocksize       = 1
@@ -168,6 +175,7 @@ logical :: fdiag_fix = .false.
 !----------------
 !  IPD containers
 !----------------
+type(IPD_init_type)                 :: Init_parm
 type(IPD_control_type)              :: IPD_Control
 type(IPD_data_type),    allocatable :: IPD_Data(:)  ! number of blocks
 type(IPD_diag_type)                 :: IPD_Diag(250)
@@ -220,6 +228,8 @@ subroutine update_atmos_radiation_physics (Atmos)
 !--- local variables---
     integer :: nb, jdat(8)
     integer :: nthrds
+
+    call mpp_clock_begin(shieldClock)
 
 #ifdef OPENMP
     nthrds = omp_get_max_threads()
@@ -323,6 +333,8 @@ subroutine update_atmos_radiation_physics (Atmos)
       if (mpp_pe() == mpp_root_pe() .and. debug) write(6,*) "end of radiation and physics step"
     endif
 
+    call mpp_clock_end(shieldClock)
+
 !-----------------------------------------------------------------------
  end subroutine update_atmos_radiation_physics
 ! </SUBROUTINE>
@@ -359,8 +371,8 @@ subroutine atmos_model_init (Atmos, Time_init, Time, Time_step, iau_offset)
   character(len=64) :: filename, filename2, pelist_name
   character(len=132) :: text
   logical :: p_hydro, hydro, fexist
+  logical :: do_inline_mp, do_cosp
   logical, save :: block_message = .true.
-  type(IPD_init_type) :: Init_parm
   integer :: bdat(8), cdat(8)
   integer :: ntracers
   integer :: kdt_prev
@@ -412,7 +424,8 @@ subroutine atmos_model_init (Atmos, Time_init, Time, Time_step, iau_offset)
 !-----------------------------------------------------------------------
 !--- before going any further check definitions for 'blocks'
 !-----------------------------------------------------------------------
-   call atmosphere_control_data (isc, iec, jsc, jec, nlev, p_hydro, hydro, tile_num)
+   call atmosphere_control_data (isc, iec, jsc, jec, nlev, p_hydro, hydro, tile_num, &
+                                 do_inline_mp, do_cosp)
    call define_blocks_packed ('atmos_model', Atm_block, isc, iec, jsc, jec, nlev, &
                               blocksize, block_message)
 
@@ -463,6 +476,9 @@ subroutine atmos_model_init (Atmos, Time_init, Time, Time_step, iau_offset)
    Init_parm%xlat            => Atmos%lat
    Init_parm%area            => Atmos%area
    Init_parm%tracer_names    => tracer_names
+   Init_parm%hydro           = hydro
+   Init_parm%do_inline_mp    = do_inline_mp
+   Init_parm%do_cosp         = do_cosp
 
    allocate(Init_parm%input_nml_file, mold=input_nml_file)
    Init_parm%input_nml_file  => input_nml_file
@@ -557,17 +573,18 @@ subroutine atmos_model_init (Atmos, Time_init, Time, Time_step, iau_offset)
    endif
 #endif
 
-   setupClock = mpp_clock_id( 'GFS Step Setup        ', flags=clock_flag_default, grain=CLOCK_COMPONENT )
-   overrideClock = mpp_clock_id( 'GFS Override          ', flags=clock_flag_default, grain=CLOCK_COMPONENT )
-   radClock   = mpp_clock_id( 'GFS Radiation         ', flags=clock_flag_default, grain=CLOCK_COMPONENT )
-   physClock  = mpp_clock_id( 'GFS Physics           ', flags=clock_flag_default, grain=CLOCK_COMPONENT )
-   getClock   = mpp_clock_id( 'Dynamics get state    ', flags=clock_flag_default, grain=CLOCK_COMPONENT )
-   updClock   = mpp_clock_id( 'Dynamics update state ', flags=clock_flag_default, grain=CLOCK_COMPONENT )
+   setupClock = mpp_clock_id( '---GFS Step Setup     ', flags=clock_flag_default, grain=CLOCK_COMPONENT )
+   overrideClock = mpp_clock_id( '---GFS Override       ', flags=clock_flag_default, grain=CLOCK_COMPONENT )
+   radClock   = mpp_clock_id( '---GFS Radiation      ', flags=clock_flag_default, grain=CLOCK_COMPONENT )
+   physClock  = mpp_clock_id( '---GFS Physics        ', flags=clock_flag_default, grain=CLOCK_COMPONENT )
+   diagClock  = mpp_clock_id( '---GFS Diag           ', flags=clock_flag_default, grain=CLOCK_COMPONENT )
+   getClock   = mpp_clock_id( '---GFS Get State      ', flags=clock_flag_default, grain=CLOCK_COMPONENT )
    if (sync) then
-     fv3Clock = mpp_clock_id( 'FV3 Dycore            ', flags=clock_flag_default+MPP_CLOCK_SYNC, grain=CLOCK_COMPONENT )
+     fv3Clock = mpp_clock_id( '--FV3 Dycore          ', flags=clock_flag_default+MPP_CLOCK_SYNC, grain=CLOCK_COMPONENT )
    else
-     fv3Clock = mpp_clock_id( 'FV3 Dycore            ', flags=clock_flag_default, grain=CLOCK_COMPONENT )
+     fv3Clock = mpp_clock_id( '--FV3 Dycore          ', flags=clock_flag_default, grain=CLOCK_COMPONENT )
    endif
+   shieldClock= mpp_clock_id( '--SHiELD Physics      ', flags=clock_flag_default, grain=CLOCK_COMPONENT )
 
 !-----------------------------------------------------------------------
 end subroutine atmos_model_init
@@ -605,10 +622,11 @@ subroutine update_atmos_model_state (Atmos)
 
     call set_atmosphere_pelist()
     call mpp_clock_begin(fv3Clock)
-    call mpp_clock_begin(updClock)
     call atmosphere_state_update (Atmos%Time, IPD_Data, IAU_Data, Atm_block)
-    call mpp_clock_end(updClock)
     call mpp_clock_end(fv3Clock)
+
+    call mpp_clock_begin(shieldClock)
+    call mpp_clock_begin(diagClock)
 
     if (chksum_debug) then
       if (mpp_pe() == mpp_root_pe()) print *,'UPDATE STATE    ', IPD_Control%kdt, IPD_Control%fhour
@@ -650,6 +668,36 @@ subroutine update_atmos_model_state (Atmos)
           time_intfull = time_intfull - Atmos%iau_offset*3600.
         endif
       endif
+#if defined (USE_COSP)
+      !-----------------------------------------------------------------------
+      ! The CFMIP Observation Simulator Package (COSP)
+      ! Added by Linjiong Zhou
+      ! May 2021
+      !-----------------------------------------------------------------------
+
+      if (IPD_Control%do_cosp) then
+
+        call cosp2_driver (IPD_Control, IPD_Data(:)%Grid, IPD_Data(:)%Statein, &
+                           IPD_Data(:)%Stateout, IPD_Data(:)%Sfcprop, &
+                           IPD_Data(:)%Radtend, IPD_Data(:)%Intdiag, Init_parm)
+
+      endif
+#endif
+#if defined (COSP_OFFLINE)
+      !-----------------------------------------------------------------------
+      ! Output Variables for the Offline CFMIP Observation Simulator Package (COSP)
+      ! Added by Linjiong Zhou
+      ! Nov 2022
+      !-----------------------------------------------------------------------
+
+      if (IPD_Control%do_cosp) then
+
+        call cosp2_offline (IPD_Control, IPD_Data(:)%Statein, &
+                           IPD_Data(:)%Stateout, IPD_Data(:)%Sfcprop, &
+                           IPD_Data(:)%Radtend, IPD_Data(:)%Intdiag, Init_parm)
+
+      endif
+#endif
       call gfdl_diag_output(Atmos%Time, Atm_block, IPD_Data, IPD_Control, IPD_Control%nx, IPD_Control%ny, fprint, &
                             IPD_Control%levs, 1, 1, 1.d0, time_int, time_intfull, &
                             IPD_Control%fhswr, IPD_Control%fhlwr, &
@@ -660,6 +708,9 @@ subroutine update_atmos_model_state (Atmos)
       call diag_send_complete_instant (Atmos%Time)
       if (mod(isec,nint(3600*IPD_Control%fhzero)) == 0) diag_time = Atmos%Time
     endif
+
+    call mpp_clock_end(diagClock)
+    call mpp_clock_end(shieldClock)
 
  end subroutine update_atmos_model_state
 ! </SUBROUTINE>
@@ -691,6 +742,8 @@ subroutine atmos_model_end (Atmos)
   type (atmos_data_type), intent(inout) :: Atmos
 !---local variables
   integer :: idx
+
+    call IPD_physics_end (IPD_Control)
 
 !-----------------------------------------------------------------------
 !---- termination routine for atmospheric model ----
