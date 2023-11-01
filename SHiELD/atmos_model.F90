@@ -225,6 +225,9 @@ contains
 !   variable type are allocated for the global grid (without halo regions).
 ! </INOUT>
 subroutine update_atmos_radiation_physics(Atmos)
+!--- This subroutine, which merely combines calls to finer-grained subroutines,
+!    is only required for backwards compatibility with
+!    FMScoupler/SHiELD/coupler_main.F90.
   type (atmos_data_type), intent(in) :: Atmos
 
   call update_atmos_pre_radiation(Atmos)
@@ -300,12 +303,6 @@ subroutine update_atmos_pre_radiation (Atmos)
       type (atmos_data_type), intent(in) :: Atmos
 !--- local variables---
       integer :: nb, jdat(8), rc
-      integer :: nthrds
-#ifdef OPENMP
-      nthrds = omp_get_max_threads()
-#else
-      nthrds = 1
-#endif
 
       if (mpp_pe() == mpp_root_pe() .and. debug) write(6,*) "radiation driver"
 !--- execute the IPD atmospheric radiation subcomponent (RRTM)
@@ -331,13 +328,6 @@ subroutine update_atmos_pre_radiation (Atmos)
       type (atmos_data_type), intent(in) :: Atmos
 !--- local variables---
       integer :: nb, jdat(8), rc
-      integer :: nthrds
-
-#ifdef OPENMP
-      nthrds = omp_get_max_threads()
-#else
-      nthrds = 1
-#endif
 
       if (mpp_pe() == mpp_root_pe() .and. debug) write(6,*) "physics driver"
 !--- execute the IPD atmospheric physics step1 subcomponent (main physics driver)
