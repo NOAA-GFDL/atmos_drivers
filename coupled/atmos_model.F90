@@ -532,18 +532,17 @@ subroutine update_atmos_model_down( Surface_boundary, Atmos )
                                   Surface_boundary%dtaudv       (isw:iew,jsw:jew), &
                                   Surface_boundary%u_flux       (isw:iew,jsw:jew), &
                                   Surface_boundary%v_flux       (isw:iew,jsw:jew), &
-#ifdef use_am5phys
-                                  Surface_boundary%shflx        (isw:iew,jsw:jew), & ! shflx    required by HanEDMF
-                                  Surface_boundary%lhflx        (isw:iew,jsw:jew), & ! evap     required by HanEDMF
-                                  Surface_boundary%wind         (isw:iew,jsw:jew), & ! sfc wind required by HanEDMF
-                                  Surface_boundary%thv_atm      (isw:iew,jsw:jew), & ! 2m thv   required by HanEDMF
-                                  Surface_boundary%thv_surf     (isw:iew,jsw:jew), & ! sfc thv  required by HanEDMF
-#endif
                                   Physics_tendency%block(blk),   &
                                   Atmos%Surf_diff, &
                                   Atmos%gust(is:ie,js:je), &
                                   Rad_flux(1)%control, &
-                                  Rad_flux(1)%block(blk) )
+                                  Rad_flux(1)%block(blk), &
+                                  shflx   = Surface_boundary%shflx   (isw:iew,jsw:jew), & ! shflx    required by HanEDMF
+                                  lhflx   = Surface_boundary%lhflx   (isw:iew,jsw:jew), & ! evap     required by HanEDMF
+                                  wind    = Surface_boundary%wind    (isw:iew,jsw:jew), & ! sfc wind required by HanEDMF
+                                  thv_atm = Surface_boundary%thv_atm (isw:iew,jsw:jew), & ! 2m thv   required by HanEDMF
+                                  thv_surf= Surface_boundary%thv_surf(isw:iew,jsw:jew)  ) ! sfc thv  required by HanEDMF
+
     enddo
 
     call physics_driver_down_endts (1, 1)
