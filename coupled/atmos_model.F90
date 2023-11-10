@@ -1421,8 +1421,10 @@ subroutine lnd_ice_atm_bnd_type_chksum(id, timestep, bnd_type)
     write(outunit,100) 'lnd_ice_atm_bnd_type%b_star        ',mpp_chksum(bnd_type%b_star         )
     write(outunit,100) 'lnd_ice_atm_bnd_type%q_star        ',mpp_chksum(bnd_type%q_star         )
 #ifndef use_AM3_physics
-    write(outunit,100) 'lnd_ice_atm_bnd_type%shflx         ',mpp_chksum(bnd_type%shflx          )!miz
-    write(outunit,100) 'lnd_ice_atm_bnd_type%lhflx         ',mpp_chksum(bnd_type%lhflx          )!miz
+    if(associated(bnd_type%shflx)) & 
+       write(outunit,100) 'lnd_ice_atm_bnd_type%shflx         ',mpp_chksum(bnd_type%shflx       )!miz
+    if(associated(bnd_type%lhflx)) & 
+       write(outunit,100) 'lnd_ice_atm_bnd_type%lhflx         ',mpp_chksum(bnd_type%lhflx       )!miz
 #endif
     write(outunit,100) 'lnd_ice_atm_bnd_type%wind          ',mpp_chksum(bnd_type%wind           )
     write(outunit,100) 'lnd_ice_atm_bnd_type%thv_atm       ',mpp_chksum(bnd_type%thv_atm        )
