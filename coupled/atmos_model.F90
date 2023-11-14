@@ -537,11 +537,11 @@ subroutine update_atmos_model_down( Surface_boundary, Atmos )
                                   Atmos%gust(is:ie,js:je), &
                                   Rad_flux(1)%control, &
                                   Rad_flux(1)%block(blk), &
-                                  shflx   = Surface_boundary%shflx   (isw:iew,jsw:jew), & ! shflx    required by HanEDMF
-                                  lhflx   = Surface_boundary%lhflx   (isw:iew,jsw:jew), & ! evap     required by HanEDMF
-                                  wind    = Surface_boundary%wind    (isw:iew,jsw:jew), & ! sfc wind required by HanEDMF
-                                  thv_atm = Surface_boundary%thv_atm (isw:iew,jsw:jew), & ! 2m thv   required by HanEDMF
-                                  thv_surf= Surface_boundary%thv_surf(isw:iew,jsw:jew)  ) ! sfc thv  required by HanEDMF
+                                  shflx   = Surface_boundary%shflx   (isw:iew,jsw:jew), & ! shflx    required by NCEP TKE-based EDMF
+                                  lhflx   = Surface_boundary%lhflx   (isw:iew,jsw:jew), & ! evap     required by NCEP TKE-based EDMF
+                                  wind    = Surface_boundary%wind    (isw:iew,jsw:jew), & ! sfc wind required by NCEP TKE-based EDMF
+                                  thv_atm = Surface_boundary%thv_atm (isw:iew,jsw:jew), & ! 2m thv   required by NCEP TKE-based EDMF
+                                  thv_surf= Surface_boundary%thv_surf(isw:iew,jsw:jew)  ) ! sfc thv  required by NCEP TKE-based EDMF
 
     enddo
 
