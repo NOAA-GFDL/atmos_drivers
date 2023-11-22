@@ -205,9 +205,9 @@ type land_ice_atmos_boundary_type
    real, dimension(:,:),   pointer :: q_star         =>null() ! moisture scale
    real, dimension(:,:),   pointer :: shflx          =>null() ! sensible heat flux !miz
    real, dimension(:,:),   pointer :: lhflx          =>null() ! latent heat flux   !miz
-   real, dimension(:,:),   pointer :: wind           =>null() ! surface wind
-   real, dimension(:,:),   pointer :: thv_atm        =>null() ! surface air theta_v
-   real, dimension(:,:),   pointer :: thv_surf       =>null() ! surface theta_v
+   real, dimension(:,:),   pointer :: wind           =>null() ! absolute wind at lowest atmos model level with gust corrections (w_atm of surface_flux output)
+   real, dimension(:,:),   pointer :: thv_atm        =>null() ! virtual temperature at lowest atmos model level
+   real, dimension(:,:),   pointer :: thv_surf       =>null() ! virtual temperature at the surface
    real, dimension(:,:),   pointer :: rough_mom      =>null() ! surface roughness (used for momentum)
    real, dimension(:,:),   pointer :: frac_open_sea  =>null() ! non-seaice fraction (%)
    real, dimension(:,:,:), pointer :: data           =>null() !collective field for "named" fields above
