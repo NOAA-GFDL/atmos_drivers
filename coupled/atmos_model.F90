@@ -205,6 +205,9 @@ type land_ice_atmos_boundary_type
    real, dimension(:,:),   pointer :: q_star         =>null() ! moisture scale
    real, dimension(:,:),   pointer :: shflx          =>null() ! sensible heat flux !miz
    real, dimension(:,:),   pointer :: lhflx          =>null() ! latent heat flux   !miz
+   real, dimension(:,:),   pointer :: wind           =>null() ! absolute wind at lowest atmos model level with gust corrections (w_atm of surface_flux output)
+   real, dimension(:,:),   pointer :: thv_atm        =>null() ! virtual temperature at lowest atmos model level
+   real, dimension(:,:),   pointer :: thv_surf       =>null() ! virtual temperature at the surface
    real, dimension(:,:),   pointer :: rough_mom      =>null() ! surface roughness (used for momentum)
    real, dimension(:,:),   pointer :: frac_open_sea  =>null() ! non-seaice fraction (%)
    real, dimension(:,:,:), pointer :: data           =>null() !collective field for "named" fields above
@@ -533,7 +536,13 @@ subroutine update_atmos_model_down( Surface_boundary, Atmos )
                                   Atmos%Surf_diff, &
                                   Atmos%gust(is:ie,js:je), &
                                   Rad_flux(1)%control, &
-                                  Rad_flux(1)%block(blk) )
+                                  Rad_flux(1)%block(blk), &
+                                  shflx   = Surface_boundary%shflx   (isw:iew,jsw:jew), & ! shflx    required by NCEP TKE-based EDMF
+                                  lhflx   = Surface_boundary%lhflx   (isw:iew,jsw:jew), & ! evap     required by NCEP TKE-based EDMF
+                                  wind    = Surface_boundary%wind    (isw:iew,jsw:jew), & ! sfc wind required by NCEP TKE-based EDMF
+                                  thv_atm = Surface_boundary%thv_atm (isw:iew,jsw:jew), & ! 2m thv   required by NCEP TKE-based EDMF
+                                  thv_surf= Surface_boundary%thv_surf(isw:iew,jsw:jew)  ) ! sfc thv  required by NCEP TKE-based EDMF
+
     enddo
 
     call physics_driver_down_endts (1, 1)
@@ -1412,9 +1421,14 @@ subroutine lnd_ice_atm_bnd_type_chksum(id, timestep, bnd_type)
     write(outunit,100) 'lnd_ice_atm_bnd_type%b_star        ',mpp_chksum(bnd_type%b_star         )
     write(outunit,100) 'lnd_ice_atm_bnd_type%q_star        ',mpp_chksum(bnd_type%q_star         )
 #ifndef use_AM3_physics
-    write(outunit,100) 'lnd_ice_atm_bnd_type%shflx         ',mpp_chksum(bnd_type%shflx          )!miz
-    write(outunit,100) 'lnd_ice_atm_bnd_type%lhflx         ',mpp_chksum(bnd_type%lhflx          )!miz
+    if(associated(bnd_type%shflx)) & 
+       write(outunit,100) 'lnd_ice_atm_bnd_type%shflx         ',mpp_chksum(bnd_type%shflx       )!miz
+    if(associated(bnd_type%lhflx)) & 
+       write(outunit,100) 'lnd_ice_atm_bnd_type%lhflx         ',mpp_chksum(bnd_type%lhflx       )!miz
 #endif
+    write(outunit,100) 'lnd_ice_atm_bnd_type%wind          ',mpp_chksum(bnd_type%wind           )
+    write(outunit,100) 'lnd_ice_atm_bnd_type%thv_atm       ',mpp_chksum(bnd_type%thv_atm        )
+    write(outunit,100) 'lnd_ice_atm_bnd_type%thv_surf      ',mpp_chksum(bnd_type%thv_surf       )
     write(outunit,100) 'lnd_ice_atm_bnd_type%rough_mom     ',mpp_chksum(bnd_type%rough_mom      )
 !    write(outunit,100) 'lnd_ice_atm_bnd_type%data          ',mpp_chksum(bnd_type%data           )
 
