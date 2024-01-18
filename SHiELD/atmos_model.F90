@@ -555,9 +555,7 @@ subroutine atmos_model_init (Atmos, Time_init, Time, Time_step, iau_offset)
 !rab   call atmosphere_tracer_postinit (IPD_Data, Atm_block)
 
    call atmosphere_nggps_diag (Time, init=.true.)
-   call gfdl_diag_register (Time, IPD_Data(:)%Sfcprop, IPD_Data(:)%IntDiag, IPD_Data%Cldprop, &
-        Atm_block, Atmos%axes, IPD_Control%nfxr, IPD_Control%ldiag3d, &
-        IPD_Control%nkld, IPD_Control%levs, IPD_Control%override_surface_radiative_fluxes)
+   call gfdl_diag_register (Time, IPD_Data(:)%Sfcprop, IPD_Data(:)%IntDiag, IPD_Control, IPD_Data%Cldprop, Atm_block, Atmos%axes)
    call register_diag_manager_controlled_diagnostics(Time, IPD_Data(:)%Sfcprop, IPD_Data(:)%IntDiag, IPD_Control, Atm_block%nblks, Atmos%axes)
    if (Atm(mygrid)%coarse_graining%write_coarse_diagnostics) then
        call atmosphere_coarse_diag_axes(coarse_diagnostic_axes)
