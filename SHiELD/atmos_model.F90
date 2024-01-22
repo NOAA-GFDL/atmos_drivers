@@ -561,7 +561,7 @@ subroutine atmos_model_init (Atmos, Time_init, Time, Time_step, iau_offset)
    call gfdl_diag_register (Time, IPD_Data(:)%Sfcprop, IPD_Data(:)%IntDiag, IPD_Data%Cldprop, &
         Atm_block, Atmos%axes, IPD_Control%nfxr, IPD_Control%ldiag3d, &
         IPD_Control%nkld, IPD_Control%levs, IPD_Control%override_surface_radiative_fluxes)
-   call register_diag_manager_controlled_diagnostics(Time, IPD_Data(:)%IntDiag, Atm_block%nblks, Atmos%axes)
+   call register_diag_manager_controlled_diagnostics(Time, IPD_Data(:)%Sfcprop, IPD_Data(:)%IntDiag, Atm_block%nblks, Atmos%axes)
    if (Atm(mygrid)%coarse_graining%write_coarse_diagnostics) then
        call atmosphere_coarse_diag_axes(coarse_diagnostic_axes)
        call FV3GFS_diag_register_coarse(Time, coarse_diagnostic_axes)
