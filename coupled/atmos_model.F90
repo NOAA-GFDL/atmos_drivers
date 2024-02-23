@@ -96,9 +96,9 @@ use physics_radiation_exch_mod,only: exchange_control_type, &
 use radiation_driver_mod,only: radiation_driver_init, radiation_driver_time_vary, &
                                radiation_driver, radiation_driver_endts, &
                                radiation_driver_restart, radiation_driver_end
-use radiation_driver2, only: radiation_driver2_init, radiation_driver2_time_vary, &
-                             radiation_driver2, radiation_driver2_endts, &
-                             radiation_driver2_restart, radiation_driver2_end
+use radiation_driver2_mod, only: radiation_driver2_init, radiation_driver2_time_vary, &
+                                 radiation_driver2, radiation_driver2_endts, &
+                                 radiation_driver2_restart, radiation_driver2_end
 use physics_driver_mod, only: surf_diff_type, &
                               cosp_driver_init, &
                               set_cosp_precip_sources, &
