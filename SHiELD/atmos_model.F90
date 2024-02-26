@@ -391,7 +391,8 @@ subroutine atmos_model_init (Atmos, Time_init, Time, Time_step, iau_offset)
   integer, intent(in) :: iau_offset
 !--- local variables ---
   integer :: unit, ntdiag, ntfamily, i, j, k
-  integer :: mlon, mlat, nlon, nlat, nlev, sec, dt, sec_prev
+  integer :: mlon, mlat, nlon, nlat, nlev, sec, dt
+  integer(kind=8) :: sec_prev
   integer :: ierr, io, logunit
   integer :: idx, tile_num
   integer :: isc, iec, jsc, jec
@@ -420,7 +421,7 @@ subroutine atmos_model_init (Atmos, Time_init, Time, Time_step, iau_offset)
    Atmos % Time_step = Time_step
    Atmos % iau_offset = iau_offset
    call get_time (Atmos % Time_step, sec)
-   call get_time (Atmos%Time - Atmos%Time_init, sec_prev)
+   call get_time_seconds_int64(Atmos%Time - Atmos%Time_init, sec_prev)
    dt_phys = real(sec)      ! integer seconds
    kdt_prev = int(sec_prev / dt_phys)
 
@@ -646,7 +647,8 @@ subroutine update_atmos_model_state (Atmos)
 ! to update the model state after all concurrency is completed
   type (atmos_data_type), intent(inout) :: Atmos
 !--- local variables
-  integer :: isec,seconds,isec_fhzero
+  integer :: isec,isec_fhzero
+  integer(kind=8) :: seconds
   real(kind=kind_phys) :: time_int, time_intfull
   integer :: is, ie, js, je, kt
 
@@ -674,7 +676,7 @@ subroutine update_atmos_model_state (Atmos)
        Atmos%coarsening_strategy, real(Atm(mygrid)%ptop, kind=kind_phys))
 
     call get_time (Atmos%Time - diag_time, isec)
-    call get_time (Atmos%Time - Atmos%Time_init, seconds)
+    call get_time_seconds_int64(Atmos%Time - Atmos%Time_init, seconds)
 
     time_int = real(isec)
     if (ANY(nint(fdiag(:)*3600.0) == seconds) .or. (fdiag_fix .and. mod(seconds, nint(fdiag(1)*3600.0)) .eq. 0) .or. (IPD_Control%kdt == 1 .and. first_time_step) ) then
@@ -880,4 +882,18 @@ end subroutine atmos_data_type_chksum
                 Atmos%lat      )
   end subroutine dealloc_atmos_data_type
 
+  subroutine get_time_seconds_int64(delta, seconds)
+    ! FMS's get_time subroutine only allows returning a 32-bit integer of
+    ! seconds, which limits the range of time that can be represented by a
+    ! scalar to about +/- 68 years. This subroutine returns a 64-bit integer,
+    ! which extends the range to +/- 5.8 million years.
+    type(time_type), intent(in) :: delta
+    integer(kind=8), intent(out) :: seconds
+
+    integer :: seconds_from_get_time, days_from_get_time
+    integer(kind=8), parameter :: seconds_per_day = 86400
+
+    call get_time(delta, seconds_from_get_time, days_from_get_time)
+    seconds = seconds_per_day * int(days_from_get_time, kind=8) + int(seconds_from_get_time, kind=8)
+  end subroutine get_time_seconds_int64
 end module atmos_model_mod
