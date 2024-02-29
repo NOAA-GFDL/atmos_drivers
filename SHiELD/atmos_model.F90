@@ -421,8 +421,18 @@ subroutine atmos_model_init (Atmos, Time_init, Time, Time_step, iau_offset)
    Atmos % Time_step = Time_step
    Atmos % iau_offset = iau_offset
    call get_time (Atmos % Time_step, sec)
+
+   ! Compute seconds since initialization as a 64-bit integer. If we compute
+   ! it as a 32-bit integer, it limits simulations to less than 2^31 seconds in
+   ! length, which is about 68 years. Given how FMS computes time deltas, this
+   ! in theory would support simulations up to about 5.8 million years in
+   ! length; however, there are other aspects of the model that would fail
+   ! first.
    call get_time_seconds_int64(Atmos%Time - Atmos%Time_init, sec_prev)
    dt_phys = real(sec)      ! integer seconds
+
+   ! In theory this could also overflow after about dt_phys * 68 years, but
+   ! this field is only used for data assimilation configurations.
    kdt_prev = int(sec_prev / dt_phys)
 
    logunit = stdlog()
@@ -676,6 +686,12 @@ subroutine update_atmos_model_state (Atmos)
        Atmos%coarsening_strategy, real(Atm(mygrid)%ptop, kind=kind_phys))
 
     call get_time (Atmos%Time - diag_time, isec)
+   ! Compute seconds since initialization as a 64-bit integer. If we compute
+   ! it as a 32-bit integer, it limits simulations to less than 2^31 seconds in
+   ! length, which is about 68 years. Given how FMS computes time deltas, this
+   ! in theory would support simulations up to about 5.8 million years in
+   ! length; however, there are other aspects of the model that would fail
+   ! first.
     call get_time_seconds_int64(Atmos%Time - Atmos%Time_init, seconds)
 
     time_int = real(isec)
@@ -886,7 +902,7 @@ end subroutine atmos_data_type_chksum
     ! FMS's get_time subroutine only allows returning a 32-bit integer of
     ! seconds, which limits the range of time that can be represented by a
     ! scalar to about +/- 68 years. This subroutine returns a 64-bit integer,
-    ! which extends the range to +/- 5.8 million years.
+    ! which extends the range to about +/- 5.8 million years.
     type(time_type), intent(in) :: delta
     integer(kind=8), intent(out) :: seconds
 
