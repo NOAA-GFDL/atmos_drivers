@@ -695,11 +695,15 @@ subroutine update_atmos_model_state (Atmos)
     call get_time_seconds_int64(Atmos%Time - Atmos%Time_init, seconds)
 
     time_int = real(isec)
+    ! For overflow safety cast scaled fdiag values to 64-bit nearest integers
+    ! before interacting with seconds.
     if (ANY(nint(fdiag(:)*3600.0, kind=8) == seconds) .or. (fdiag_fix .and. mod(seconds, nint(fdiag(1)*3600.0, kind=8)) .eq. 0) .or. (IPD_Control%kdt == 1 .and. first_time_step) ) then
       if (mpp_pe() == mpp_root_pe()) write(6,*) "---isec,seconds",isec,seconds
       if (mpp_pe() == mpp_root_pe()) write(6,*) ' gfs diags time since last bucket empty: ',time_int/3600.,'hrs'
       call atmosphere_nggps_diag(Atmos%Time)
     endif
+    ! For overflow safety cast scaled fdiag values to 64-bit nearest integers
+    ! before interacting with seconds.
     if (ANY(nint(fdiag(:)*3600.0, kind=8) == seconds) .or. (fdiag_fix .and. mod(seconds, nint(fdiag(1)*3600.0, kind=8)) .eq. 0) .or. (IPD_Control%kdt == 1 .and. first_time_step)) then
       if(Atmos%iau_offset > zero) then
         if( time_int - Atmos%iau_offset*3600. > zero ) then
@@ -746,10 +750,12 @@ subroutine update_atmos_model_state (Atmos)
 
       endif
 #endif
+      ! For overflow safety cast scaled fdiag values to 64-bit nearest integers
+      ! before interacting with seconds.
       call gfdl_diag_output(Atmos%Time, Atm_block, IPD_Data, IPD_Control%nx, IPD_Control%ny, fprint, &
                             IPD_Control%levs, 1, 1, 1.d0, time_int, time_intfull, &
                             IPD_Control%fhswr, IPD_Control%fhlwr, &
-                            mod(seconds, nint(fdiag(1)*3600.0)) .eq. 0, &
+                            mod(seconds, nint(fdiag(1)*3600.0, kind=8)) .eq. 0, &
                             Atm(mygrid)%coarse_graining%write_coarse_diagnostics,&
                             real(Atm(mygrid)%delp(is:ie,js:je,:), kind=kind_phys), &
                             Atmos%coarsening_strategy, real(Atm(mygrid)%ptop, kind=kind_phys))
