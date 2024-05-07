@@ -101,6 +101,7 @@ implicit none
          call fms_memutils_print_memuse_stats(text)
        endif
 
+       call fms_diag_send_complete(Time_step_atmos)
     enddo
 
     call fms_mpp_clock_end (id_loop)
@@ -296,6 +297,7 @@ contains
      call flush(stdout_unit)
    endif
 
+   call fms_diag_set_time_end(Time_end)
    call atmosphere_init (Time_init, Time, Time_step_atmos)
    call atmosphere_domain(atmos_domain)
 
