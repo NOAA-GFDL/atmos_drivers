@@ -237,6 +237,7 @@ subroutine update_atmos_radiation_physics(Atmos)
     call update_atmos_physics(Atmos)
   end if
 
+   call mpp_clock_end(shieldClock)
 end subroutine update_atmos_radiation_physics
 
 subroutine update_atmos_pre_radiation (Atmos)
@@ -365,7 +366,6 @@ subroutine update_atmos_pre_radiation (Atmos)
       call getiauforcing(IPD_Control,IAU_data)
       if (mpp_pe() == mpp_root_pe() .and. debug) write(6,*) "end of radiation and physics step"
 
-    call mpp_clock_end(shieldClock)
 
 !-----------------------------------------------------------------------
  end subroutine update_atmos_physics
