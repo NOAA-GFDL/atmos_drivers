@@ -230,6 +230,7 @@ subroutine update_atmos_radiation_physics(Atmos)
 !    FMScoupler/SHiELD/coupler_main.F90.
   type (atmos_data_type), intent(in) :: Atmos
 
+  call mpp_clock_begin(shieldClock)
   call update_atmos_pre_radiation(Atmos)
 
   if (.not. dycore_only) then
@@ -237,7 +238,7 @@ subroutine update_atmos_radiation_physics(Atmos)
     call update_atmos_physics(Atmos)
   end if
 
-   call mpp_clock_end(shieldClock)
+  call mpp_clock_end(shieldClock)
 end subroutine update_atmos_radiation_physics
 
 subroutine update_atmos_pre_radiation (Atmos)
@@ -246,8 +247,6 @@ subroutine update_atmos_pre_radiation (Atmos)
 !--- local variables---
     integer :: nb, jdat(8)
     integer :: nthrds
-
-    call mpp_clock_begin(shieldClock)
 
 #ifdef OPENMP
     nthrds = omp_get_max_threads()
