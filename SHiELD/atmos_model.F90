@@ -391,7 +391,8 @@ subroutine atmos_model_init (Atmos, Time_init, Time, Time_step, iau_offset)
   integer, intent(in) :: iau_offset
 !--- local variables ---
   integer :: unit, ntdiag, ntfamily, i, j, k
-  integer :: mlon, mlat, nlon, nlat, nlev, sec, dt, sec_prev
+  integer :: mlon, mlat, nlon, nlat, nlev, sec, dt
+  integer(kind=8) :: sec_prev
   integer :: ierr, io, logunit
   integer :: idx, tile_num
   integer :: isc, iec, jsc, jec
@@ -420,8 +421,18 @@ subroutine atmos_model_init (Atmos, Time_init, Time, Time_step, iau_offset)
    Atmos % Time_step = Time_step
    Atmos % iau_offset = iau_offset
    call get_time (Atmos % Time_step, sec)
-   call get_time (Atmos%Time - Atmos%Time_init, sec_prev)
+
+   ! Compute seconds since initialization as a 64-bit integer. If we compute
+   ! it as a 32-bit integer, it limits simulations to less than 2^31 seconds in
+   ! length, which is about 68 years. Given how FMS computes time deltas, this
+   ! in theory would support simulations up to about 5.8 million years in
+   ! length; however, there are other aspects of the model that would fail
+   ! first.
+   call get_time_seconds_int64(Atmos%Time - Atmos%Time_init, sec_prev)
    dt_phys = real(sec)      ! integer seconds
+
+   ! In theory this could also overflow after about dt_phys * 68 years, but
+   ! this field is only used for data assimilation configurations.
    kdt_prev = int(sec_prev / dt_phys)
 
    logunit = stdlog()
@@ -649,7 +660,8 @@ subroutine update_atmos_model_state (Atmos)
 ! to update the model state after all concurrency is completed
   type (atmos_data_type), intent(inout) :: Atmos
 !--- local variables
-  integer :: isec,seconds,isec_fhzero
+  integer :: isec,isec_fhzero
+  integer(kind=8) :: seconds
   real(kind=kind_phys) :: time_int, time_intfull
   integer :: is, ie, js, je, kt
 
@@ -677,15 +689,25 @@ subroutine update_atmos_model_state (Atmos)
        Atmos%coarsening_strategy, real(Atm(mygrid)%ptop, kind=kind_phys))
 
     call get_time (Atmos%Time - diag_time, isec)
-    call get_time (Atmos%Time - Atmos%Time_init, seconds)
+   ! Compute seconds since initialization as a 64-bit integer. If we compute
+   ! it as a 32-bit integer, it limits simulations to less than 2^31 seconds in
+   ! length, which is about 68 years. Given how FMS computes time deltas, this
+   ! in theory would support simulations up to about 5.8 million years in
+   ! length; however, there are other aspects of the model that would fail
+   ! first.
+    call get_time_seconds_int64(Atmos%Time - Atmos%Time_init, seconds)
 
     time_int = real(isec)
-    if (ANY(nint(fdiag(:)*3600.0) == seconds) .or. (fdiag_fix .and. mod(seconds, nint(fdiag(1)*3600.0)) .eq. 0) .or. (IPD_Control%kdt == 1 .and. first_time_step) ) then
+    ! For overflow safety cast scaled fdiag values to 64-bit nearest integers
+    ! before interacting with seconds.
+    if (ANY(nint(fdiag(:)*3600.0, kind=8) == seconds) .or. (fdiag_fix .and. mod(seconds, nint(fdiag(1)*3600.0, kind=8)) .eq. 0) .or. (IPD_Control%kdt == 1 .and. first_time_step) ) then
       if (mpp_pe() == mpp_root_pe()) write(6,*) "---isec,seconds",isec,seconds
       if (mpp_pe() == mpp_root_pe()) write(6,*) ' gfs diags time since last bucket empty: ',time_int/3600.,'hrs'
       call atmosphere_nggps_diag(Atmos%Time)
     endif
-    if (ANY(nint(fdiag(:)*3600.0) == seconds) .or. (fdiag_fix .and. mod(seconds, nint(fdiag(1)*3600.0)) .eq. 0) .or. (IPD_Control%kdt == 1 .and. first_time_step)) then
+    ! For overflow safety cast scaled fdiag values to 64-bit nearest integers
+    ! before interacting with seconds.
+    if (ANY(nint(fdiag(:)*3600.0, kind=8) == seconds) .or. (fdiag_fix .and. mod(seconds, nint(fdiag(1)*3600.0, kind=8)) .eq. 0) .or. (IPD_Control%kdt == 1 .and. first_time_step)) then
       if(Atmos%iau_offset > zero) then
         if( time_int - Atmos%iau_offset*3600. > zero ) then
           time_int = time_int - Atmos%iau_offset*3600.
@@ -731,10 +753,12 @@ subroutine update_atmos_model_state (Atmos)
 
       endif
 #endif
+      ! For overflow safety cast scaled fdiag values to 64-bit nearest integers
+      ! before interacting with seconds.
       call gfdl_diag_output(Atmos%Time, Atm_block, IPD_Data, IPD_Control%nx, IPD_Control%ny, fprint, &
                             IPD_Control%levs, 1, 1, 1.d0, time_int, time_intfull, &
                             IPD_Control%fhswr, IPD_Control%fhlwr, &
-                            mod(seconds, nint(fdiag(1)*3600.0)) .eq. 0, &
+                            mod(seconds, nint(fdiag(1)*3600.0, kind=8)) .eq. 0, &
                             Atm(mygrid)%coarse_graining%write_coarse_diagnostics,&
                             real(Atm(mygrid)%delp(is:ie,js:je,:), kind=kind_phys), &
                             Atmos%coarsening_strategy, real(Atm(mygrid)%ptop, kind=kind_phys))
@@ -883,4 +907,18 @@ end subroutine atmos_data_type_chksum
                 Atmos%lat      )
   end subroutine dealloc_atmos_data_type
 
+  subroutine get_time_seconds_int64(delta, seconds)
+    ! FMS's get_time subroutine only allows returning a 32-bit integer of
+    ! seconds, which limits the range of time that can be represented by a
+    ! scalar to about +/- 68 years. This subroutine returns a 64-bit integer,
+    ! which extends the range to about +/- 5.8 million years.
+    type(time_type), intent(in) :: delta
+    integer(kind=8), intent(out) :: seconds
+
+    integer :: seconds_from_get_time, days_from_get_time
+    integer(kind=8), parameter :: seconds_per_day = 86400
+
+    call get_time(delta, seconds_from_get_time, days_from_get_time)
+    seconds = seconds_per_day * int(days_from_get_time, kind=8) + int(seconds_from_get_time, kind=8)
+  end subroutine get_time_seconds_int64
 end module atmos_model_mod
