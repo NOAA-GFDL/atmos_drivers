@@ -60,7 +60,7 @@ use tracer_manager_mod, only: get_number_tracers, get_tracer_names
 use xgrid_mod,          only: grid_box_type
 use atmosphere_mod,     only: atmosphere_init
 use atmosphere_mod,     only: atmosphere_restart
-use atmosphere_mod,     only: atmosphere_end
+use atmosphere_mod,     only: atmosphere_end, get_bottom_mass, get_bottom_wind
 use atmosphere_mod,     only: atmosphere_state_update
 use atmosphere_mod,     only: atmos_phys_driver_statein
 use atmosphere_mod,     only: atmosphere_control_data
@@ -271,6 +271,7 @@ logical :: sync            = .false.
 logical :: first_time_step = .false.
 logical :: fprint          = .true.
 logical :: ignore_rst_cksum = .false. ! enforce (.false.) or override (.true.) data integrity restart checksums
+logical :: fullcoupler_fluxes = .false. ! get surface fluxes from the full coupler ! for mom6 coupling
 real, dimension(4096) :: fdiag = 0. ! xic: TODO: this is hard coded, space can run out in some cases. Should make it allocatable.
 logical :: fdiag_override = .false. ! lmh: if true overrides fdiag and fhzer: all quantities are zeroed out
                                     ! after every calcluation, output interval and accumulation/avg/max/min
@@ -281,7 +282,7 @@ integer :: nxblocks = 1
 integer :: nyblocks = 1
 namelist /atmos_model_nml/ do_netcdf_restart, restart_tbot_qbot, nxblocks, nyblocks, &
                            blocksize, chksum_debug, dycore_only, debug, sync, first_time_step, fdiag, fprint, &
-                           fdiag_override, ignore_rst_cksum
+                           fdiag_override, ignore_rst_cksum, fullcoupler_fluxes
 
 type (time_type) :: diag_time, diag_time_fhzero
 logical :: fdiag_fix = .false.
@@ -325,8 +326,7 @@ subroutine update_atmos_model_down( Surface_boundary, Atmos )
 !-----------------------------------------------------------------------
 
   type(land_ice_atmos_boundary_type), intent(in) :: Surface_boundary
-  type (atmos_data_type), intent(in) :: Atmos
-
+  type (atmos_data_type), intent(inout) :: Atmos
   return
 
 end subroutine update_atmos_model_down
@@ -407,6 +407,16 @@ subroutine update_atmos_model_radiation (Surface_boundary, Atmos) ! name change 
     call mpp_clock_begin(overrideClock)
     call sfc_data_override (Atmos%Time, IPD_data, Atm_block, IPD_Control)
     call mpp_clock_end(overrideClock)
+
+!-----------------------------------------------------------------------------------
+!-----------------------------------------------------------------------------------
+!--- JOSEPH: do we override sfc here form ocean output before calling physics_step1
+    if (fullcoupler_fluxes) then
+    if (mpp_pe() == mpp_root_pe() .and. debug) write(6,*) "apply_sfc_data_to_IPD"
+      call apply_sfc_data_to_IPD (Surface_boundary)
+    endif
+!-----------------------------------------------------------------------------------
+!-----------------------------------------------------------------------------------
 
 !--- if dycore only run, set up the dummy physics output state as the input state
     if (dycore_only) then
@@ -696,10 +706,10 @@ subroutine atmos_model_init (Atmos, Time_init, Time, Time_step, do_concurrent_ra
 !   call gfdl_diag_register (Time, IPD_Data(:)%Sfcprop, IPD_Data(:)%IntDiag, IPD_Data%Cldprop, &
 !        Atm_block, Atmos%axes, IPD_Control%nfxr, IPD_Control%ldiag3d, &
 !        IPD_Control%nkld, IPD_Control%levs)
- !  call gfdl_diag_register (Time, IPD_Data(:)%Sfcprop, IPD_Data(:)%IntDiag, IPD_Control, IPD_Data%Cldprop, &
- !       Atm_block, Atmos%axes)
+   call gfdl_diag_register (Time, IPD_Data(:)%Sfcprop, IPD_Data(:)%IntDiag, IPD_Control, IPD_Data%Cldprop, &
+        Atm_block, Atmos%axes)
 !   call register_diag_manager_controlled_diagnostics(Time, IPD_Data(:)%IntDiag, Atm_block%nblks, Atmos%axes)
-!   call register_diag_manager_controlled_diagnostics(Time, IPD_Data(:)%Sfcprop, IPD_Data(:)%IntDiag, IPD_Control, Atm_block%nblks, Atmos%axes)
+   call register_diag_manager_controlled_diagnostics(Time, IPD_Data(:)%Sfcprop, IPD_Data(:)%IntDiag, IPD_Control, Atm_block%nblks, Atmos%axes)
    if (Atm(mygrid)%coarse_graining%write_coarse_diagnostics) then
        call atmosphere_coarse_diag_axes(coarse_diagnostic_axes)
        call FV3GFS_diag_register_coarse(Time, coarse_diagnostic_axes)
@@ -721,6 +731,17 @@ subroutine atmos_model_init (Atmos, Time_init, Time, Time_step, do_concurrent_ra
        diag_time_fhzero = Atmos%Time
      endif
    endif
+
+
+
+!-----------------------------------------------------------------------
+!------ get initial state for dynamics -------
+    call get_bottom_mass (Atmos % t_bot,  Atmos % tr_bot, &
+                          Atmos % p_bot,  Atmos % z_bot,  &
+                          Atmos % p_surf, Atmos % slp     )
+
+    call get_bottom_wind (Atmos % u_bot, Atmos % v_bot)
+
 
    !--- print version number to logfile
    call write_version_number ( version, tagname )
@@ -812,6 +833,10 @@ subroutine update_atmos_model_state (Atmos)
 !------ advance time ------
     Atmos % Time = Atmos % Time + Atmos % Time_step
 
+    call get_bottom_mass (Atmos % t_bot,  Atmos % tr_bot, &
+                          Atmos % p_bot,  Atmos % z_bot,  &
+                          Atmos % p_surf, Atmos % slp     )
+    call get_bottom_wind (Atmos % u_bot, Atmos % v_bot)
     call atmosphere_control_data(is, ie, js, je, kt)
     call send_diag_manager_controlled_diagnostic_data(Atmos%Time, &
        Atm_block, IPD_Data, IPD_Control%nx, IPD_Control%ny, IPD_Control%levs, &
@@ -889,6 +914,43 @@ subroutine update_atmos_model_state (Atmos)
     call mpp_clock_end(shieldClock)
 
  end subroutine update_atmos_model_state
+
+subroutine apply_sfc_data_to_IPD (Surface_boundary)
+!
+!By Joseph and Kun: 
+!Here we use sfc-layer variables/fluxes over ocean points from 
+!the coupler code (through xgrid and saved in atmos%surface_boundary)
+!to update variables in SHiELD physics 
+!
+  type(land_ice_atmos_boundary_type), intent(in) :: Surface_boundary
+  integer :: nb, blen, ix, i, j
+
+  do nb = 1,Atm_block%nblks
+     blen = Atm_block%blksz(nb)
+     do ix = 1, blen
+        i = Atm_block%index(nb)%ii(ix)
+        j = Atm_block%index(nb)%jj(ix)
+        ! sensible heat flux (rho*cp_air*t_flux)
+        IPD_Data(nb)%Sfcprop%shflx(ix)  = Surface_boundary%shflx(i,j)
+        ! moisture flux (rho*q_flux)
+        IPD_Data(nb)%Sfcprop%lhflx(ix)  = Surface_boundary%lhflx(i,j)
+        ! only do ocean points for the fields below 
+        if (nint(IPD_Data(nb)%Sfcprop%slmsk(ix)) == 0) then
+          ! sea surface temp 
+          IPD_Data(nb)%Sfcprop%tsfc(ix)   = Surface_boundary%t_ocean(i,j)
+          ! roughness length for momentum in cm
+          IPD_Data(nb)%Sfcprop%zorl(ix)   = 100.* Surface_boundary%rough_mom(i,j)
+          ! roughness length for heat in cm
+          IPD_Data(nb)%Sfcprop%ztrl(ix)   = 100.* Surface_boundary%rough_heat(i,j)
+          ! ustar
+          IPD_Data(nb)%Sfcprop%uustar(ix) = Surface_boundary%u_star(i,j)
+        endif
+     enddo
+  enddo
+
+end subroutine apply_sfc_data_to_IPD
+
+
 ! </SUBROUTINE>
 
 !#######################################################################
@@ -1099,6 +1161,7 @@ subroutine lnd_ice_atm_bnd_type_chksum(id, timestep, bnd_type)
     write(outunit,100) 'lnd_ice_atm_bnd_type%lhflx         ',mpp_chksum(bnd_type%lhflx          )!miz
 #endif
     write(outunit,100) 'lnd_ice_atm_bnd_type%rough_mom     ',mpp_chksum(bnd_type%rough_mom      )
+    write(outunit,100) 'lnd_ice_atm_bnd_type%rough_heat    ',mpp_chksum(bnd_type%rough_heat     )!kgao
 !    write(outunit,100) 'lnd_ice_atm_bnd_type%data          ',mpp_chksum(bnd_type%data           )
 
 end subroutine lnd_ice_atm_bnd_type_chksum
@@ -1244,6 +1307,7 @@ end subroutine ice_atm_bnd_type_chksum
     Atmos % flux_sw_vis_dir         = 0.0
     Atmos % flux_sw_vis_dif         = 0.0
     Atmos % coszen                  = 0.0
+    Atmos % tr_bot                  = 0.0 
 
   end subroutine alloc_atmos_data_type
 
