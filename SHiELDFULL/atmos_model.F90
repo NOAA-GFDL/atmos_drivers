@@ -68,7 +68,6 @@ use atmosphere_mod,     only: atmosphere_resolution, atmosphere_domain
 use atmosphere_mod,     only: atmosphere_grid_bdry, atmosphere_grid_ctr
 use atmosphere_mod,     only: atmosphere_dynamics, atmosphere_diag_axes
 use atmosphere_mod,     only: atmosphere_etalvls, atmosphere_hgt
-!rab use atmosphere_mod,     only: atmosphere_tracer_postinit
 use atmosphere_mod,     only: atmosphere_diss_est, atmosphere_nggps_diag
 use atmosphere_mod,     only: atmosphere_scalar_field_halo
 use atmosphere_mod,     only: set_atmosphere_pelist
@@ -124,26 +123,32 @@ public atmos_data_type_chksum, lnd_atm_bnd_type_chksum, ice_atm_bnd_type_chksum
 public atm_stock_pe
 !-----------------------------------------------------------------------
 
-!FROM AM4/src/atmos_phys/atmos_param/vert_diff/vert_diff.F90
+!<PUBLICTYPE >
+! FROM AM4/src/atmos_phys/atmos_param/vert_diff/vert_diff.F90
+! Surface diffusion derived type data
 type surf_diff_type
 
-  real, pointer, dimension(:,:) :: dtmass  => NULL(),   &
-                                   dflux_t => NULL(),   &
-                                   delta_t => NULL(),   &
-                                   delta_u => NULL(),   &
-                                   delta_v => NULL()
-  real, pointer, dimension(:,:,:) :: tdt_dyn => NULL(), &
-                                     qdt_dyn => NULL(), &
-                                     dgz_dyn => NULL(), &
-                                     ddp_dyn => NULL(), &
+  real, pointer, dimension(:,:) :: dtmass  => NULL(),   & !dt / mass (mass of lower atmospheric layer)
+                                   dflux_t => NULL(),   & ! temperature flux derivative at the top of the lowest atmospheric
+                                                          ! layer with respect to the temperature of that layer  (J/(m2 K))
+                                   delta_t => NULL(),   & ! the increment in temperature in the lowest atmospheric layer
+                                   delta_u => NULL(),   & ! same for u
+                                   delta_v => NULL()      ! same for v
+  real, pointer, dimension(:,:,:) :: tdt_dyn => NULL(), & ! no explanation found in the vert_diff.F90
+                                     qdt_dyn => NULL(), &! no explanation found in the vert_diff.F90
+                                     dgz_dyn => NULL(), &! no explanation found in the vert_diff.F90
+                                     ddp_dyn => NULL(), &! no explanation found in the vert_diff.F90
+
                                      tdt_rad => NULL()   !miz
 
   real, pointer, dimension(:,:,:) :: dflux_tr => NULL(),& ! tracer flux tendency
                                      delta_tr => NULL()   ! tracer tendency
 end type surf_diff_type
+!<PUBLICTYPE >
 
 !<PUBLICTYPE >
  type atmos_data_type
+! Atmosphere related variables
      type (domain2d)               :: domain             ! domain decomposition
      type (domain2d)               :: domain_for_read    ! domain decomposition for reads
      integer                       :: axes(4)            ! axis indices (returned by diag_manager) for the atmospheric grid
@@ -289,7 +294,7 @@ logical :: fdiag_fix = .false.
 
 !--- concurrent and decoupled radiation and physics variables
 !----------------
-!  IPD containers
+!  IPD containers ! For SHiELD physics
 !----------------
 type(IPD_init_type)                 :: Init_parm
 type(IPD_control_type)              :: IPD_Control
@@ -316,7 +321,38 @@ real(kind=kind_phys), parameter :: zero = 0.0_kind_phys
 
 contains
 
-!from atmos_null
+!#######################################################################
+! <SUBROUTINE NAME="update_atmos_model_down">
+!
+! <OVERVIEW>
+!   compute the atmospheric tendencies for dynamics, radiation,
+!   vertical diffusion of momentum, tracers, and heat/moisture.
+! !!!IMPORTANT!!! taken from atmos_null, no op for shield runs
+! </OVERVIEW>
+!
+!<DESCRIPTION>
+!   Called every time step as the atmospheric driver to compute the
+!   atmospheric tendencies for dynamics, radiation, vertical diffusion of
+!   momentum, tracers, and heat/moisture.  For heat/moisture only the
+!   downward sweep of the tridiagonal elimination is performed, hence
+!   the name "_down".
+!</DESCRIPTION>
+
+!   <TEMPLATE>
+!     call  update_atmos_model_down( Surface_boundary, Atmos )
+!   </TEMPLATE>
+
+! <IN NAME = "Surface_boundary" TYPE="type(land_ice_atmos_boundary_type)">
+!   Derived-type variable that contains quantities going from land+ice to atmos.
+! </IN>
+
+! <INOUT NAME="Atmos" TYPE="type(atmos_data_type)">
+!   Derived-type variable that contains fields needed by the flux exchange module.
+!   These fields describe the atmospheric grid and are needed to
+!   compute/exchange fluxes with other component models.  All fields in this
+!   variable type are allocated for the global grid (without halo regions).
+! </INOUT>
+
 subroutine update_atmos_model_down( Surface_boundary, Atmos )
 !-----------------------------------------------------------------------
 !                       atmospheric driver
@@ -327,8 +363,9 @@ subroutine update_atmos_model_down( Surface_boundary, Atmos )
 
   type(land_ice_atmos_boundary_type), intent(in) :: Surface_boundary
   type (atmos_data_type), intent(inout) :: Atmos
-  return
 
+  return
+! !!!IMPORTANT!!!no op for shield runs
 end subroutine update_atmos_model_down
 ! </SUBROUTINE>
 
@@ -338,6 +375,7 @@ end subroutine update_atmos_model_down
 !-----------------------------------------------------------------------
 ! <OVERVIEW>
 !   upward vertical diffusion of heat/moisture and moisture processes
+! !!!IMPORTANT!!! taken from atmos_null, no op for shield runs
 ! </OVERVIEW>
 
 !<DESCRIPTION>
@@ -373,11 +411,45 @@ subroutine update_atmos_model_up( Surface_boundary, Atmos )
    type (atmos_data_type), intent(in) :: Atmos
  
    return
+! !!!IMPORTANT!!!no op for shield runs
 
 end subroutine update_atmos_model_up
 
+
+!#######################################################################
+! <SUBROUTINE NAME="update_atmos_model_radiation">
+!
+! <OVERVIEW>
+!   compute the atmospheric tendencies for dynamics, radiation,
+!   vertical diffusion of momentum, tracers, and heat/moisture.
+!!!IMPORTANT!!! SHiELD physics are run here
+! </OVERVIEW>
+!
+!<DESCRIPTION>
+!   Called every time step as the atmospheric driver to compute the
+!   atmospheric tendencies for dynamics, radiation, vertical diffusion of
+!   momentum, tracers, and heat/moisture.  For heat/moisture only the
+!   downward sweep of the tridiagonal elimination is performed, hence
+!   the name "_down".
+!</DESCRIPTION>
+
+!   <TEMPLATE>
+!     call  update_atmos_model_radiation( Surface_boundary, Atmos)
+!   </TEMPLATE>
+
+! <IN NAME = "Surface_boundary" TYPE="type(land_ice_atmos_boundary_type)">
+!   Derived-type variable that contains quantities going from land+ice to atmos.
+! </IN>
+
+! <INOUT NAME="Atmos" TYPE="type(atmos_data_type)">
+!   Derived-type variable that contains fields needed by the flux exchange module.
+!   These fields describe the atmospheric grid and are needed to
+!   compute/exchange fluxes with other component models.  All fields in this
+!   variable type are allocated for the global grid (without halo regions).
+! </INOUT>
 subroutine update_atmos_model_radiation (Surface_boundary, Atmos) ! name change to match the full coupler call
 ! subroutine update_atmos_radiation_physics (Atmos) !original
+! SHiELD physics are run here
 !-----------------------------------------------------------------------
   type (atmos_data_type), intent(in) :: Atmos
   type(land_ice_atmos_boundary_type), intent(in) :: Surface_boundary
@@ -506,8 +578,36 @@ subroutine update_atmos_model_radiation (Surface_boundary, Atmos) ! name change 
 !-----------------------------------------------------------------------
  !end subroutine update_atmos_radiation_physics
 end subroutine update_atmos_model_radiation ! name change to match the full coupler call
-
 ! </SUBROUTINE>
+
+!#######################################################################
+! <SUBROUTINE NAME="atm_stock_pe">
+!
+! <OVERVIEW>
+!  returns the total stock in atmospheric model
+! </OVERVIEW>
+
+! <DESCRIPTION>
+!  Called to compute and return the total stock (e.g., water, heat, etc.)
+! in the atmospheric on the current PE.
+! </DESCRIPTION>
+
+! <TEMPLATE>
+!   call atm_stock_pe (Atmos, index, value)
+! </TEMPLATE>
+
+! <INOUT NAME="Atm" TYPE="type(atmos_data_type)">
+!   Derived-type variable that contains fields needed by the flux exchange module.
+! </INOUT>
+!
+! <IN NAME="index" TYPE="integer">
+!   Index of stock to be computed.
+! </IN>
+!
+! <OUT NAME="value" TYPE="real">
+!   Value of stock on the current processor.
+! </OUT>
+
 ! from coupled atmos_model
 subroutine atm_stock_pe (Atm, index, value)
 
@@ -515,7 +615,7 @@ type (atmos_data_type), intent(inout) :: Atm
 integer,                intent(in)    :: index
 real,                   intent(out)   :: value
 
-value = 0.0
+   value = 0.0
 
 end subroutine atm_stock_pe
 
@@ -526,8 +626,34 @@ end subroutine atm_stock_pe
 ! Routine to initialize the atmospheric model
 ! </OVERVIEW>
 
-!subroutine atmos_model_init (Atmos, Time_init, Time, Time_step, iau_offset)
+! <DESCRIPTION>
+!     This routine allocates storage and returns a variable of type
+!     atmos_boundary_data_type, and also reads a namelist input and restart file.
+! </DESCRIPTION>
+
+! <TEMPLATE>
+!     call atmos_model_init (Atmos, Time_init, Time, Time_step, &
+!                             do_concurrent_radiation_in)
+! </TEMPLATE>
+
+! <IN NAME="Time_init" TYPE="type(time_type)" >
+!   The base (or initial) time of the experiment.
+! </IN>
+
+! <IN NAME="Time" TYPE="type(time_type)" >
+!   The current time.
+! </IN>
+
+! <IN NAME="Time_step" TYPE="type(time_type)" >
+!   The atmospheric model/physics time step.
+! </IN>
+
+! <INOUT NAME="Atmos" TYPE="type(atmos_data_type)">
+!   Derived-type variable that contains fields needed by the flux exchange module.
+! </INOUT>
+
 subroutine atmos_model_init (Atmos, Time_init, Time, Time_step, do_concurrent_radiation) !argument change to match the full coupler
+!subroutine atmos_model_init (Atmos, Time_init, Time, Time_step, iau_offset) !check how iau_offset should work
 
 #ifdef OPENMP
   use omp_lib
@@ -792,6 +918,14 @@ end subroutine atmos_model_init
 ! <SUBROUTINE NAME="update_atmos_model_dynamics"
 !
 ! <OVERVIEW>
+! update atmosphere dynamics 
+! </OVERVIEW>
+! <DESCRIPTION>
+!     This routine advances prognostic atmosphere variables in time
+! </DESCRIPTION>
+! <TEMPLATE>
+!     call update_atmos_model_dynamics (Atmos)
+! </TEMPLATE>
 subroutine update_atmos_model_dynamics (Atmos)
 ! run the atmospheric dynamics to advect the properties
   type (atmos_data_type), intent(in) :: Atmos ! should this be 'inout'
@@ -809,6 +943,14 @@ end subroutine update_atmos_model_dynamics
 ! <SUBROUTINE NAME="update_atmos_model_state"
 !
 ! <OVERVIEW>
+! update atmosphere physics 
+! </OVERVIEW>
+! <DESCRIPTION>
+!     This routine update atmosphere physics variables
+! </DESCRIPTION>
+! <TEMPLATE>
+!     call update_atmos_model_state (Atmos)
+! </TEMPLATE>
 subroutine update_atmos_model_state (Atmos)
 ! to update the model state after all concurrency is completed
   type (atmos_data_type), intent(inout) :: Atmos
@@ -914,6 +1056,23 @@ subroutine update_atmos_model_state (Atmos)
     call mpp_clock_end(shieldClock)
 
  end subroutine update_atmos_model_state
+! </SUBROUTINE>
+
+!#######################################################################
+! <SUBROUTINE NAME="apply_sfc_data_to_IPD">
+!
+! <OVERVIEW>
+! update IPD layer variables
+! </OVERVIEW>
+
+! <DESCRIPTION>
+! apply coupler variables from the exchange grid as input for SHiELD physics
+! through the IPD layer
+! </DESCRIPTION>
+
+! <TEMPLATE>
+!     call apply_sfc_data_to_IPD (Surface_boundary)
+! </TEMPLATE>
 
 subroutine apply_sfc_data_to_IPD (Surface_boundary)
 !
@@ -949,8 +1108,6 @@ subroutine apply_sfc_data_to_IPD (Surface_boundary)
   enddo
 
 end subroutine apply_sfc_data_to_IPD
-
-
 ! </SUBROUTINE>
 
 !#######################################################################
@@ -995,8 +1152,8 @@ subroutine atmos_model_end (Atmos)
     endif
 
 end subroutine atmos_model_end
-
 ! </SUBROUTINE>
+
 !#######################################################################
 ! <SUBROUTINE NAME="atmos_model_restart">
 ! <DESCRIPTION>
@@ -1121,8 +1278,6 @@ end subroutine atmos_data_type_chksum
 !   An integer to indicate which timestep this routine is being called for.
 ! </IN>
 !
-
-
 subroutine lnd_ice_atm_bnd_type_chksum(id, timestep, bnd_type)
 
     character(len=*), intent(in) :: id
@@ -1194,8 +1349,6 @@ end subroutine lnd_ice_atm_bnd_type_chksum
 !   An integer to indicate which timestep this routine is being called for.
 ! </IN>
 !
-
-
 subroutine lnd_atm_bnd_type_chksum(id, timestep, bnd_type)
   use fms_mod,                 only: stdout
   use mpp_mod,                 only: mpp_chksum
@@ -1241,8 +1394,6 @@ end subroutine lnd_atm_bnd_type_chksum
 !   An integer to indicate which timestep this routine is being called for.
 ! </IN>
 !
-
-
 subroutine ice_atm_bnd_type_chksum(id, timestep, bnd_type)
   use fms_mod,                 only: stdout
   use mpp_mod,                 only: mpp_chksum
