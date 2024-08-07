@@ -519,6 +519,10 @@ subroutine update_atmos_model_radiation (Surface_boundary, Atmos) ! name change 
 
       call mpp_clock_end(setupClock)
 
+!below are the old routines update_atmos_radiation and update_atmos_physics
+!no need to continue for dycore_only runs, check logic in SHiELD/atmos_model.F90
+      if (dycore_only) return
+
       if (mpp_pe() == mpp_root_pe() .and. debug) write(6,*) "radiation driver"
 !--- execute the IPD atmospheric radiation subcomponent (RRTM)
       call mpp_clock_begin(radClock)
@@ -679,6 +683,7 @@ subroutine atmos_model_init (Atmos, Time_init, Time, Time_step, do_concurrent_ra
   character(len=64) :: filename, filename2, pelist_name
   character(len=132) :: text
   logical :: p_hydro, hydro, fexist
+  logical :: do_inline_mp, do_cosp
   logical, save :: block_message = .true.
   integer :: bdat(8), cdat(8)
   integer :: ntracers
@@ -734,7 +739,8 @@ subroutine atmos_model_init (Atmos, Time_init, Time, Time_step, do_concurrent_ra
 !-----------------------------------------------------------------------
 !--- before going any further check definitions for 'blocks'
 !-----------------------------------------------------------------------
-   call atmosphere_control_data (isc, iec, jsc, jec, nlev, p_hydro, hydro, tile_num)
+   call atmosphere_control_data (isc, iec, jsc, jec, nlev, p_hydro, hydro, tile_num, &
+                                 do_inline_mp, do_cosp)
    call define_blocks_packed ('atmos_model', Atm_block, isc, iec, jsc, jec, nlev, &
                               blocksize, block_message)
 
@@ -785,6 +791,9 @@ subroutine atmos_model_init (Atmos, Time_init, Time, Time_step, do_concurrent_ra
    Init_parm%xlat            => Atmos%lat
    Init_parm%area            => Atmos%area
    Init_parm%tracer_names    => tracer_names
+   Init_parm%hydro           = hydro
+   Init_parm%do_inline_mp    = do_inline_mp
+   Init_parm%do_cosp         = do_cosp
 
    allocate(Init_parm%input_nml_file, mold=input_nml_file)
    Init_parm%input_nml_file  => input_nml_file
