@@ -46,7 +46,7 @@ use mpp_mod,            only: mpp_clock_end, CLOCK_COMPONENT, MPP_CLOCK_SYNC
 use mpp_mod,            only: mpp_min, mpp_max, mpp_error, mpp_chksum
 use mpp_domains_mod,   only : mpp_get_compute_domain
 use mpp_domains_mod,    only: domain2d
-use mpp_mod,            only: mpp_get_current_pelist_name
+use mpp_mod,            only: mpp_get_current_pelist_name, mpp_set_current_pelist
 use mpp_mod,            only: input_nml_file, stdlog, stdout
 use fms2_io_mod,        only: file_exists
 use fms_mod,            only: write_version_number
@@ -459,6 +459,7 @@ subroutine update_atmos_model_radiation (Surface_boundary, Atmos) ! name change 
     integer :: nb, jdat(8)
     integer :: nthrds
 
+    call set_atmosphere_pelist() ! should be called before local clocks since they are defined on local atm(n)%pelist
     call mpp_clock_begin(shieldClock)
 
 #ifdef OPENMP
@@ -469,7 +470,6 @@ subroutine update_atmos_model_radiation (Surface_boundary, Atmos) ! name change 
 
     if (mpp_pe() == mpp_root_pe() .and. debug) write(6,*) "statein driver"
 !--- get atmospheric state from the dynamic core
-    call set_atmosphere_pelist()
     call mpp_clock_begin(getClock)
     if (IPD_control%do_skeb) call atmosphere_diss_est (IPD_control%skeb_npass) !  do smoothing for SKEB
     call atmos_phys_driver_statein (IPD_data, Atm_block)
@@ -574,6 +574,7 @@ subroutine update_atmos_model_radiation (Surface_boundary, Atmos) ! name change 
     endif
 
     call mpp_clock_end(shieldClock)
+    call mpp_set_current_pelist() !should exit with global pelist to accomodate the full coupler atmos clock
 
 !-----------------------------------------------------------------------
  !end subroutine update_atmos_radiation_physics
@@ -906,10 +907,12 @@ subroutine atmos_model_init (Atmos, Time_init, Time, Time_step, do_concurrent_ra
    endif
    shieldClock= mpp_clock_id( '--SHiELD Physics      ', flags=clock_flag_default, grain=CLOCK_COMPONENT )
 
-call diag_integral_init (Atmos % Time_init, Atmos % Time,  &
-                         Atmos % lon_bnd(:,:),  &
-                         Atmos % lat_bnd(:,:), Atmos % area)
-!-----------------------------------------------------------------------
+   call diag_integral_init (Atmos % Time_init, Atmos % Time,  &
+                            Atmos % lon_bnd(:,:),  &
+                            Atmos % lat_bnd(:,:), Atmos % area)
+
+   call mpp_set_current_pelist() !should exit with global pelist to accomodate the full coupler atmos clock
+
 end subroutine atmos_model_init
 ! </SUBROUTINE>
 
@@ -934,6 +937,7 @@ subroutine update_atmos_model_dynamics (Atmos)
     call mpp_clock_begin(fv3Clock)
     call atmosphere_dynamics (Atmos%Time)
     call mpp_clock_end(fv3Clock)
+    call mpp_set_current_pelist() !should exit with global pelist to accomodate the full coupler atmos clock
 
 end subroutine update_atmos_model_dynamics
 ! </SUBROUTINE>
@@ -1054,6 +1058,7 @@ subroutine update_atmos_model_state (Atmos)
 
     call mpp_clock_end(diagClock)
     call mpp_clock_end(shieldClock)
+    call mpp_set_current_pelist() !should exit with global pelist to accomodate the full coupler atmos clock
 
  end subroutine update_atmos_model_state
 ! </SUBROUTINE>
