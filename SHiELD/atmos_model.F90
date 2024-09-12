@@ -43,7 +43,7 @@ module atmos_model_mod
 
 use mpp_mod,            only: mpp_pe, mpp_root_pe, mpp_clock_id, mpp_clock_begin
 use mpp_mod,            only: mpp_clock_end, CLOCK_COMPONENT, MPP_CLOCK_SYNC
-use mpp_mod,            only: mpp_min, mpp_max, mpp_error, mpp_chksum
+use mpp_mod,            only: mpp_min, mpp_max, mpp_error, mpp_chksum, NOTE
 use mpp_domains_mod,    only: domain2d
 use mpp_mod,            only: mpp_get_current_pelist_name
 use mpp_mod,            only: input_nml_file, stdlog, stdout
@@ -230,12 +230,16 @@ subroutine update_atmos_radiation_physics(Atmos)
 !    FMScoupler/SHiELD/coupler_main.F90.
   type (atmos_data_type), intent(in) :: Atmos
 
+  call mpp_clock_begin(shieldClock)
+
   call update_atmos_pre_radiation(Atmos)
 
   if (.not. dycore_only) then
     call update_atmos_radiation(Atmos)
     call update_atmos_physics(Atmos)
   end if
+
+  call mpp_clock_end(shieldClock)
 
 end subroutine update_atmos_radiation_physics
 
@@ -245,8 +249,6 @@ subroutine update_atmos_pre_radiation (Atmos)
 !--- local variables---
     integer :: nb, jdat(8)
     integer :: nthrds
-
-    call mpp_clock_begin(shieldClock)
 
 #ifdef OPENMP
     nthrds = omp_get_max_threads()
@@ -364,8 +366,6 @@ subroutine update_atmos_pre_radiation (Atmos)
       endif
       call getiauforcing(IPD_Control,IAU_data)
       if (mpp_pe() == mpp_root_pe() .and. debug) write(6,*) "end of radiation and physics step"
-
-    call mpp_clock_end(shieldClock)
 
 !-----------------------------------------------------------------------
  end subroutine update_atmos_physics
@@ -543,7 +543,12 @@ subroutine atmos_model_init (Atmos, Time_init, Time, Time_step, iau_offset)
    end if
 #endif
 
-   Atm(mygrid)%flagstruct%do_diss_est = IPD_Control%do_skeb
+   if (IPD_Control%do_skeb .and. .not. Atm(mygrid)%flagstruct%do_diss_est) then
+      call mpp_error(NOTE, "If using stochy physics (gfs_physics_nml::do_skeb = .T.) ")
+      call mpp_error(NOTE, "   a dissipation estimate must be provided.")
+      call mpp_error(NOTE, "   Setting fv_core_nml::do_diss_est=.T. to enable.")
+      Atm(mygrid)%flagstruct%do_diss_est = .true.
+   endif
 
 !  initialize the IAU module
    call iau_initialize (IPD_Control,IAU_data,Init_parm)
