@@ -494,7 +494,7 @@ subroutine update_atmos_model_radiation (Surface_boundary, Atmos) ! name change 
 
 !--- for atmos-ocean coupling: override selected surface fields in IPD (by joseph and kun)
       if (fullcoupler_fluxes) then
-        if (mpp_pe() == mpp_root_pe() .and. debug) write(6,*) "apply coupler sfc fields to IPD"
+        if (mpp_pe() == mpp_root_pe() .and. debug) write(6,*) "apply sfc fields from coupler to SHiELD"
         call apply_sfc_data_to_IPD (Surface_boundary)
       endif
 
@@ -554,9 +554,9 @@ subroutine update_atmos_model_radiation (Surface_boundary, Atmos) ! name change 
         call FV3GFS_IPD_checksum(IPD_Control, IPD_Data, Atm_block)
       endif
 
-!--- for atmos-ocean couplin g: apply sfc radiation and precip fluxes from IPD to Atmos data structure (by kun)
+!--- for atmos-ocean coupling: apply sfc radiation and precip fluxes from IPD to Atmos data structure (by kun)
       if (fullcoupler_fluxes) then
-        if (mpp_pe() == mpp_root_pe() .and. debug) write(6,*) "apply fluxes from IPD to Atmos"
+        if (mpp_pe() == mpp_root_pe() .and. debug) write(6,*) "apply sfc radiation and precip fluxes from IPD to Atmos"
         call apply_fluxes_from_IPD_to_Atmos (Atmos)
       endif
 
@@ -804,6 +804,15 @@ subroutine atmos_model_init (Atmos, Time_init, Time, Time_step, do_concurrent_ra
    Init_parm%fn_nml='using internal file'
 
    call IPD_initialize (IPD_Control, IPD_Data, IPD_Diag, IPD_Restart, Init_parm)
+
+! ensure sfc_coupled is properly set (needs to be true when using ocean coupling)
+   if (fullcoupler_fluxes) then
+        if (mpp_pe() == mpp_root_pe() .and. debug) write(6,*) "using ocean coupling - force sfc_coupled to be true"
+        IPD_Control%sfc_coupled = .true.
+   else
+        if (mpp_pe() == mpp_root_pe() .and. debug) write(6,*) "no ocean coupling - force sfc_coupled to be false"
+        IPD_Control%sfc_coupled = .false.
+   endif
 
 #ifdef STOCHY
    if (IPD_Control%do_sppt .OR. IPD_Control%do_shum .OR. IPD_Control%do_skeb .OR. IPD_Control%do_sfcperts) then
