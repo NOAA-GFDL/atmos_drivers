@@ -492,11 +492,15 @@ subroutine update_atmos_model_radiation (Surface_boundary, Atmos) ! name change 
     else
       if (mpp_pe() == mpp_root_pe() .and. debug) write(6,*) "setup step"
 
-!--- for atmos-ocean coupling: override selected surface fields in IPD (by joseph and kun)
+!--------------------------------------------------------------------------------------------
+!--------------------------------------------------------------------------------------------
+!--- for atmos-ocean coupling: pass surface fluxes from coupler to SHiELD (by joseph and kun)
       if (fullcoupler_fluxes) then
-        if (mpp_pe() == mpp_root_pe() .and. debug) write(6,*) "apply sfc fields from coupler to SHiELD"
+        if (mpp_pe() == mpp_root_pe() .and. debug) write(6,*) "call apply_sfc_data_to_IPD"
         call apply_sfc_data_to_IPD (Surface_boundary)
       endif
+!--------------------------------------------------------------------------------------------
+!--------------------------------------------------------------------------------------------
 
 !--- update IPD_Control%jdat(8)
       jdat(:) = 0
@@ -554,11 +558,15 @@ subroutine update_atmos_model_radiation (Surface_boundary, Atmos) ! name change 
         call FV3GFS_IPD_checksum(IPD_Control, IPD_Data, Atm_block)
       endif
 
-!--- for atmos-ocean coupling: apply sfc radiation and precip fluxes from IPD to Atmos data structure (by kun)
+!--------------------------------------------------------------------------------------------
+!--------------------------------------------------------------------------------------------
+!--- for atmos-ocean coupling: pass rad and prec fluxes from IPD to Atmos structure (by kun)
       if (fullcoupler_fluxes) then
-        if (mpp_pe() == mpp_root_pe() .and. debug) write(6,*) "apply sfc radiation and precip fluxes from IPD to Atmos"
+        if (mpp_pe() == mpp_root_pe() .and. debug) write(6,*) "call apply_fluxes_from_IPD_to_Atmos"
         call apply_fluxes_from_IPD_to_Atmos (Atmos)
       endif
+!--------------------------------------------------------------------------------------------
+!--------------------------------------------------------------------------------------------
 
       if (mpp_pe() == mpp_root_pe() .and. debug) write(6,*) "stochastic physics driver"
 !--- execute the IPD atmospheric physics step2 subcomponent (stochastic physics driver)
