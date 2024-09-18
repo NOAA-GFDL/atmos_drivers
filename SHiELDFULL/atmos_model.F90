@@ -807,10 +807,10 @@ subroutine atmos_model_init (Atmos, Time_init, Time, Time_step, do_concurrent_ra
 
 ! ensure sfc_coupled is properly set (needs to be true when using ocean coupling)
    if (fullcoupler_fluxes) then
-        if (mpp_pe() == mpp_root_pe() .and. debug) write(6,*) "using ocean coupling - force sfc_coupled to be true"
+        if (mpp_pe() == mpp_root_pe()) print *, "using ocean coupling - enforce sfc_coupled in SHiELD phys to be true"
         IPD_Control%sfc_coupled = .true.
    else
-        if (mpp_pe() == mpp_root_pe() .and. debug) write(6,*) "no ocean coupling - force sfc_coupled to be false"
+        if (mpp_pe() == mpp_root_pe()) print *, "no ocean coupling - enforce sfc_coupled in SHiELD phys to be false"
         IPD_Control%sfc_coupled = .false.
    endif
 
