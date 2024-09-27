@@ -220,7 +220,8 @@ type land_ice_atmos_boundary_type
    ! variables of this type are declared by coupler_main, allocated by flux_exchange_init.
 !quantities going from land+ice to atmos
    real, dimension(:,:),   pointer :: t              =>null() ! surface temperature for radiation calculations
-   real, dimension(:,:),   pointer :: t_ocean        =>null() ! surface temperature for radiation calculations !joseph
+   real, dimension(:,:),   pointer :: t_ocean        =>null() ! ocean surface temperature for shield physics coming
+                                                              ! from Ice%t_surf through xgrid !joseph
    real, dimension(:,:),   pointer :: u_ref          =>null() ! surface zonal wind (cjg: PBL depth mods) !bqx
    real, dimension(:,:),   pointer :: v_ref          =>null() ! surface meridional wind (cjg: PBL depth mods) !bqx
    real, dimension(:,:),   pointer :: t_ref          =>null() ! surface air temperature (cjg: PBL depth mods)
