@@ -158,7 +158,7 @@ public ice_atm_bnd_type_chksum
      real, pointer, dimension(:,:) :: flux_sw_vis            =>null()
      real, pointer, dimension(:,:) :: flux_sw_vis_dir        =>null()
      real, pointer, dimension(:,:) :: flux_sw_vis_dif        =>null()
-     real, pointer, dimension(:,:,:) :: gex_atm2lnd            =>null()
+     real, pointer, dimension(:,:,:) :: gex_atm2lnd          =>null()
      real, pointer, dimension(:,:) :: flux_lw  => null() ! net longwave flux (W/m2) at the surface
      real, pointer, dimension(:,:) :: lprec    => null() ! mass of liquid precipitation since last time step (Kg/m2)
      real, pointer, dimension(:,:) :: fprec    => null() ! ass of frozen precipitation since last time step (Kg/m2)
