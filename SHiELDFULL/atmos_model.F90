@@ -1118,6 +1118,8 @@ subroutine apply_sfc_data_to_IPD (Surface_boundary)
   type(land_ice_atmos_boundary_type), intent(in) :: Surface_boundary
   integer :: nb, blen, ix, i, j
 
+  !$OMP parallel do default(none) shared(Atm_block,IPD_Data,Surface_boundary) &
+  !$OMP                          private(blen,i,j)
   do nb = 1,Atm_block%nblks
      blen = Atm_block%blksz(nb)
      do ix = 1, blen
@@ -1171,6 +1173,9 @@ subroutine apply_fluxes_from_IPD_to_Atmos ( Atmos )
   real :: nirbmdi, visbmdi, nirbmui, visbmui
   real :: nirdfdi, visdfdi, nirdfui, visdfui
 
+  !$OMP parallel do default(none) shared(Atm_block,Atmos,IPD_Data,IPD_Control) &
+  !$OMP                          private(blen,i,j,nirbmdi,visbmdi,nirbmui,visbmui, &
+  !$OMP                                  nirdfdi,visdfdi,nirdfui,visdfui)
   do nb = 1,Atm_block%nblks
      blen = Atm_block%blksz(nb)
      do ix = 1, blen
