@@ -184,6 +184,8 @@ type land_ice_atmos_boundary_type
    ! variables of this type are declared by coupler_main, allocated by flux_exchange_init.
 !quantities going from land+ice to atmos
    real, dimension(:,:),   pointer :: t              =>null() ! surface temperature for radiation calculations
+   real, dimension(:,:),   pointer :: t_ocean        =>null() ! ocean surface temperature for radiation calculations coming
+                                                              ! from Ice%t_surf through xgrid !joseph
    real, dimension(:,:),   pointer :: u_ref          =>null() ! surface zonal wind (cjg: PBL depth mods) !bqx
    real, dimension(:,:),   pointer :: v_ref          =>null() ! surface meridional wind (cjg: PBL depth mods) !bqx
    real, dimension(:,:),   pointer :: t_ref          =>null() ! surface air temperature (cjg: PBL depth mods)
@@ -209,6 +211,7 @@ type land_ice_atmos_boundary_type
    real, dimension(:,:),   pointer :: thv_atm        =>null() ! virtual temperature at lowest atmos model level
    real, dimension(:,:),   pointer :: thv_surf       =>null() ! virtual temperature at the surface
    real, dimension(:,:),   pointer :: rough_mom      =>null() ! surface roughness (used for momentum)
+   real, dimension(:,:),   pointer :: rough_heat     =>null() ! surface roughness (used for heat) ! kgao
    real, dimension(:,:),   pointer :: frac_open_sea  =>null() ! non-seaice fraction (%)
    real, dimension(:,:,:), pointer :: data           =>null() !collective field for "named" fields above
    integer                         :: xtype                   !REGRID, REDIST or DIRECT
@@ -1403,6 +1406,7 @@ subroutine lnd_ice_atm_bnd_type_chksum(id, timestep, bnd_type)
     write(outunit,*) 'BEGIN CHECKSUM(lnd_ice_Atm_bnd_type):: ', id, timestep
 100 format("CHECKSUM::",A32," = ",Z20)
     write(outunit,100) 'lnd_ice_atm_bnd_type%t             ',mpp_chksum(bnd_type%t              )
+    write(outunit,100) 'lnd_ice_atm_bnd_type%t_ocean       ',mpp_chksum(bnd_type%t_ocean        )
     write(outunit,100) 'lnd_ice_atm_bnd_type%albedo        ',mpp_chksum(bnd_type%albedo         )
     write(outunit,100) 'lnd_ice_atm_bnd_type%albedo_vis_dir',mpp_chksum(bnd_type%albedo_vis_dir )
     write(outunit,100) 'lnd_ice_atm_bnd_type%albedo_nir_dir',mpp_chksum(bnd_type%albedo_nir_dir )
@@ -1430,6 +1434,7 @@ subroutine lnd_ice_atm_bnd_type_chksum(id, timestep, bnd_type)
     write(outunit,100) 'lnd_ice_atm_bnd_type%thv_atm       ',mpp_chksum(bnd_type%thv_atm        )
     write(outunit,100) 'lnd_ice_atm_bnd_type%thv_surf      ',mpp_chksum(bnd_type%thv_surf       )
     write(outunit,100) 'lnd_ice_atm_bnd_type%rough_mom     ',mpp_chksum(bnd_type%rough_mom      )
+    write(outunit,100) 'lnd_ice_atm_bnd_type%rough_heat    ',mpp_chksum(bnd_type%rough_heat     )!kgao
 !    write(outunit,100) 'lnd_ice_atm_bnd_type%data          ',mpp_chksum(bnd_type%data           )
 
 end subroutine lnd_ice_atm_bnd_type_chksum
