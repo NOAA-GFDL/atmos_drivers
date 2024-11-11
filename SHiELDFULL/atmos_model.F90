@@ -50,7 +50,7 @@ use mpp_mod,            only: mpp_get_current_pelist_name, mpp_set_current_pelis
 use mpp_mod,            only: input_nml_file, stdlog, stdout
 use fms2_io_mod,        only: file_exists
 use fms_mod,            only: write_version_number
-use fms_mod,            only: clock_flag_default, error_mesg
+use fms_mod,            only: clock_flag_default, error_mesg, FATAL
 use fms_mod,            only: check_nml_error
 use diag_manager_mod,   only: diag_send_complete_instant
 use time_manager_mod,   only: time_type, get_time, get_date, &
@@ -277,7 +277,10 @@ logical :: sync            = .false.
 logical :: first_time_step = .false.
 logical :: fprint          = .true.
 logical :: ignore_rst_cksum = .false. ! enforce (.false.) or override (.true.) data integrity restart checksums
-logical :: fullcoupler_fluxes = .false. ! get surface fluxes from the full coupler ! for mom6 coupling
+integer :: ocean_coupling_opt = 0   ! controls the atmos-ocean coupling mode
+                                    ! 0 - no ocean coupling
+                                    ! 1 - one-way coupling  (atmos  -> ocean)
+                                    ! 2 - two-way coupling  (atmos <-> ocean)
 real, dimension(4096) :: fdiag = 0. ! xic: TODO: this is hard coded, space can run out in some cases. Should make it allocatable.
 logical :: fdiag_override = .false. ! lmh: if true overrides fdiag and fhzer: all quantities are zeroed out
                                     ! after every calcluation, output interval and accumulation/avg/max/min
@@ -288,7 +291,7 @@ integer :: nxblocks = 1
 integer :: nyblocks = 1
 namelist /atmos_model_nml/ do_netcdf_restart, restart_tbot_qbot, nxblocks, nyblocks, &
                            blocksize, chksum_debug, dycore_only, debug, sync, first_time_step, fdiag, fprint, &
-                           fdiag_override, ignore_rst_cksum, fullcoupler_fluxes
+                           fdiag_override, ignore_rst_cksum, ocean_coupling_opt
 
 type (time_type) :: diag_time, diag_time_fhzero
 logical :: fdiag_fix = .false.
@@ -495,7 +498,7 @@ subroutine update_atmos_model_radiation (Surface_boundary, Atmos) ! name change 
 !--------------------------------------------------------------------------------------------
 !--------------------------------------------------------------------------------------------
 !--- for atmos-ocean coupling: pass surface fluxes from coupler to SHiELD (by joseph and kun)
-      if (fullcoupler_fluxes) then
+      if (ocean_coupling_opt .eq. 2) then
         if (mpp_pe() == mpp_root_pe() .and. debug) write(6,*) "call apply_sfc_data_to_IPD"
         call apply_sfc_data_to_IPD (Surface_boundary)
       endif
@@ -561,7 +564,7 @@ subroutine update_atmos_model_radiation (Surface_boundary, Atmos) ! name change 
 !--------------------------------------------------------------------------------------------
 !--------------------------------------------------------------------------------------------
 !--- for atmos-ocean coupling: pass rad and prec fluxes from IPD to Atmos structure (by kun)
-      if (fullcoupler_fluxes) then
+      if (ocean_coupling_opt .gt. 0) then
         if (mpp_pe() == mpp_root_pe() .and. debug) write(6,*) "call apply_fluxes_from_IPD_to_Atmos"
         call apply_fluxes_from_IPD_to_Atmos (Atmos)
       endif
@@ -729,6 +732,7 @@ subroutine atmos_model_init (Atmos, Time_init, Time, Time_step, do_concurrent_ra
       read(input_nml_file, nml=atmos_model_nml, iostat=io)
       ierr = check_nml_error(io, 'atmos_model_nml')
    endif
+
 !-----------------------------------------------------------------------
    call get_number_tracers(MODEL_ATMOS, num_tracers=ntracers)
    call atmosphere_resolution (nlon, nlat, global=.false.)
@@ -813,12 +817,15 @@ subroutine atmos_model_init (Atmos, Time_init, Time, Time_step, do_concurrent_ra
 
    call IPD_initialize (IPD_Control, IPD_Data, IPD_Diag, IPD_Restart, Init_parm)
 
-! ensure sfc_coupled is properly set (needs to be true when using ocean coupling)
-   if (fullcoupler_fluxes) then
-        if (mpp_pe() == mpp_root_pe()) print *, "using ocean coupling - enforce sfc_coupled in SHiELD phys to be true"
+! KGao: ensure ocean_coupling_opt and sfc_coupled (SHiELD physics) are properly set
+
+   if (ocean_coupling_opt .gt. 2) call error_mesg('atmos_model', 'ocean_coupling_opt > 2', FATAL)
+
+   if (ocean_coupling_opt .eq. 2) then
+        if (mpp_pe() == mpp_root_pe()) print *, "using two-way atmos-ocean coupling - enforce sfc_coupled in SHiELD phys to be true"
         IPD_Control%sfc_coupled = .true.
    else
-        if (mpp_pe() == mpp_root_pe()) print *, "no ocean coupling - enforce sfc_coupled in SHiELD phys to be false"
+        if (mpp_pe() == mpp_root_pe()) print *, "not using two-way atmos-ocean coupling - enforce sfc_coupled in SHiELD phys to be false"
         IPD_Control%sfc_coupled = .false.
    endif
 
