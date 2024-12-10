@@ -276,8 +276,9 @@ logical :: debug           = .false.
 logical :: sync            = .false.
 logical :: first_time_step = .false.
 logical :: fprint          = .true.
-logical :: ignore_rst_cksum = .false. ! enforce (.false.) or override (.true.) data integrity restart checksums
-logical :: fullcoupler_fluxes = .false. ! get surface fluxes from the full coupler ! for mom6 coupling
+logical :: ignore_rst_cksum = .false.   ! enforce (.false.) or override (.true.) data integrity restart checksums
+logical :: fullcoupler_fluxes = .false. ! controls if using air-sea surface fluxes from the full coupler to force SHiELD
+                                        ! if false, SHiELD will not feel the interactive ocean model (one-way coupling) 
 real, dimension(4096) :: fdiag = 0. ! xic: TODO: this is hard coded, space can run out in some cases. Should make it allocatable.
 logical :: fdiag_override = .false. ! lmh: if true overrides fdiag and fhzer: all quantities are zeroed out
                                     ! after every calcluation, output interval and accumulation/avg/max/min
@@ -560,11 +561,9 @@ subroutine update_atmos_model_radiation (Surface_boundary, Atmos) ! name change 
 
 !--------------------------------------------------------------------------------------------
 !--------------------------------------------------------------------------------------------
-!--- for atmos-ocean coupling: pass rad and prec fluxes from IPD to Atmos structure (by kun)
-      if (fullcoupler_fluxes) then
-        if (mpp_pe() == mpp_root_pe() .and. debug) write(6,*) "call apply_fluxes_from_IPD_to_Atmos"
-        call apply_fluxes_from_IPD_to_Atmos (Atmos)
-      endif
+!--- for atmos-ocean coupling: populate Atmos with SHiELD sfc rad and precip fluxes (by kun)
+      if (mpp_pe() == mpp_root_pe() .and. debug) write(6,*) "call apply_fluxes_from_IPD_to_Atmos"
+      call apply_fluxes_from_IPD_to_Atmos (Atmos)
 !--------------------------------------------------------------------------------------------
 !--------------------------------------------------------------------------------------------
 
@@ -813,12 +812,12 @@ subroutine atmos_model_init (Atmos, Time_init, Time, Time_step, do_concurrent_ra
 
    call IPD_initialize (IPD_Control, IPD_Data, IPD_Diag, IPD_Restart, Init_parm)
 
-! ensure sfc_coupled is properly set (needs to be true when using ocean coupling)
+! ensure sfc_coupled is properly set (must be true when using two-way atmos-ocean coupling)
    if (fullcoupler_fluxes) then
-        if (mpp_pe() == mpp_root_pe()) print *, "using ocean coupling - enforce sfc_coupled in SHiELD phys to be true"
+        if (mpp_pe() == mpp_root_pe()) print *, "using two-way atmos-ocean coupling - enforce sfc_coupled in SHiELD phys to be true"
         IPD_Control%sfc_coupled = .true.
    else
-        if (mpp_pe() == mpp_root_pe()) print *, "no ocean coupling - enforce sfc_coupled in SHiELD phys to be false"
+        if (mpp_pe() == mpp_root_pe()) print *, "not using two-way atmos-ocean coupling - enforce sfc_coupled in SHiELD phys to be false"
         IPD_Control%sfc_coupled = .false.
    endif
 
