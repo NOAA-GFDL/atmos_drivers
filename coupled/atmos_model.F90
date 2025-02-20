@@ -159,6 +159,7 @@ public ice_atm_bnd_type_chksum
      real, pointer, dimension(:,:) :: flux_sw_vis_dir        =>null()
      real, pointer, dimension(:,:) :: flux_sw_vis_dif        =>null()
      real, pointer, dimension(:,:,:) :: gex_atm2lnd          =>null()
+     real, pointer, dimension(:,:,:) :: gex_lnd2atm          =>null()
      real, pointer, dimension(:,:) :: flux_lw  => null() ! net longwave flux (W/m2) at the surface
      real, pointer, dimension(:,:) :: lprec    => null() ! mass of liquid precipitation since last time step (Kg/m2)
      real, pointer, dimension(:,:) :: fprec    => null() ! ass of frozen precipitation since last time step (Kg/m2)
@@ -217,6 +218,7 @@ type land_ice_atmos_boundary_type
    real, dimension(:,:),   pointer :: rough_heat     =>null() ! surface roughness (used for heat) ! kgao
    real, dimension(:,:),   pointer :: frac_open_sea  =>null() ! non-seaice fraction (%)
    real, dimension(:,:,:), pointer :: data           =>null() !collective field for "named" fields above
+   real, dimension(:,:,:), pointer :: gex_lnd2atm    =>null() ! gex fields exchanged from lnd to atm
    integer                         :: xtype                   !REGRID, REDIST or DIRECT
 end type land_ice_atmos_boundary_type
 !</PUBLICTYPE >
@@ -543,7 +545,8 @@ subroutine update_atmos_model_down( Surface_boundary, Atmos )
                                   Atmos%gust(is:ie,js:je), &
                                   Rad_flux(1)%control, &
                                   Rad_flux(1)%block(blk), &
-                                  Atmos%gex_atm2lnd(is:ie,js:je,:), &
+                                  gex_atm2lnd = Atmos%gex_atm2lnd(is:ie,js:je,:), &
+                                  gex_lnd2atm = Surface_boundary%gex_lnd2atm(isw:iew,jsw:jew,:), &
                                   shflx   = Surface_boundary%shflx   (isw:iew,jsw:jew), & ! shflx    required by NCEP TKE-based EDMF
                                   lhflx   = Surface_boundary%lhflx   (isw:iew,jsw:jew), & ! evap     required by NCEP TKE-based EDMF
                                   wind    = Surface_boundary%wind    (isw:iew,jsw:jew), & ! sfc wind required by NCEP TKE-based EDMF
@@ -697,7 +700,8 @@ subroutine update_atmos_model_up( Surface_boundary, Atmos)
                                 Atmos%lprec(is:ie,js:je), &
                                 Atmos%fprec(is:ie,js:je), &
                                 Atmos%gust (is:ie,js:je), &
-                                gex_atm2lnd = Atmos%gex_atm2lnd(is:ie,js:je,:) )
+                                gex_atm2lnd = Atmos%gex_atm2lnd(is:ie,js:je,:), &
+                                gex_lnd2atm = Surface_boundary%gex_lnd2atm(isw:iew,jsw:jew,:) )
     enddo
 #ifdef use_AM3_physics
     call physics_driver_up_endts (1, 1)
@@ -1024,7 +1028,7 @@ subroutine register_atmos_restart_domain(Til_restart, Atmos, to_write)
   type(FmsNetcdfDomainFile_t), intent(inout) ::  Til_restart !< Fms2io domain decomposed fileobj
   type (atmos_data_type), intent(inout) :: Atmos !< Atmosphere data type
   logical, intent(in) :: to_write !if False, check that variable exists
-  
+
   character(len=8), dimension(3)       :: dim_names !< Array of dimensions
 
 
@@ -1049,12 +1053,16 @@ subroutine register_atmos_restart_domain(Til_restart, Atmos, to_write)
   call register_restart_field(Til_restart, 'gust',  Atmos%gust,  dim_names)
   do n = 1,gex_get_n_ex(MODEL_ATMOS,MODEL_LAND)
      if (to_write) then
-        call register_restart_field(Til_restart, trim('gex_'//gex_get_property(MODEL_ATMOS,MODEL_LAND,n,GEX_NAME)),  Atmos%gex_atm2lnd(:,:,n),  dim_names)
+        call register_restart_field(Til_restart, trim('gex_atm2lnd_'//gex_get_property(MODEL_ATMOS,MODEL_LAND,n,GEX_NAME)), &
+                                    Atmos%gex_atm2lnd(:,:,n),  dim_names)
      else
-        if ( variable_exists(Til_restart,trim('gex_'//gex_get_property(MODEL_ATMOS,MODEL_LAND,n,GEX_NAME)))) then
-           call register_restart_field(Til_restart, trim('gex_'//gex_get_property(MODEL_ATMOS,MODEL_LAND,n,GEX_NAME)),  Atmos%gex_atm2lnd(:,:,n),  dim_names)           
+        if ( variable_exists(Til_restart,trim('gex_atm2lnd_'//gex_get_property(MODEL_ATMOS,MODEL_LAND,n,GEX_NAME)))) then
+           call register_restart_field(Til_restart, trim('gex_atm2lnd_'//gex_get_property(MODEL_ATMOS,MODEL_LAND,n,GEX_NAME)), &
+                                       Atmos%gex_atm2lnd(:,:,n),  dim_names)
         else
-           if (mpp_root_pe().eq.mpp_pe()) write(*,*) trim('gex_'//gex_get_property(MODEL_ATMOS,MODEL_LAND,n,GEX_NAME))//' not found. Setting to 0. [gex]'
+           if (mpp_root_pe().eq.mpp_pe()) write(*,*) trim('gex_atm2lnd_'// &
+                                                     gex_get_property(MODEL_ATMOS,MODEL_LAND,n,GEX_NAME))// &
+                                                     ' not found. Setting to 0. [gex]'
            Atmos%gex_atm2lnd(:,:,n) = 0.
         end if
      end if
@@ -1447,9 +1455,9 @@ subroutine lnd_ice_atm_bnd_type_chksum(id, timestep, bnd_type)
     write(outunit,100) 'lnd_ice_atm_bnd_type%b_star        ',mpp_chksum(bnd_type%b_star         )
     write(outunit,100) 'lnd_ice_atm_bnd_type%q_star        ',mpp_chksum(bnd_type%q_star         )
 #ifndef use_AM3_physics
-    if(associated(bnd_type%shflx)) & 
+    if(associated(bnd_type%shflx)) &
        write(outunit,100) 'lnd_ice_atm_bnd_type%shflx         ',mpp_chksum(bnd_type%shflx       )!miz
-    if(associated(bnd_type%lhflx)) & 
+    if(associated(bnd_type%lhflx)) &
        write(outunit,100) 'lnd_ice_atm_bnd_type%lhflx         ',mpp_chksum(bnd_type%lhflx       )!miz
 #endif
     write(outunit,100) 'lnd_ice_atm_bnd_type%wind          ',mpp_chksum(bnd_type%wind           )
@@ -1588,7 +1596,8 @@ end subroutine ice_atm_bnd_type_chksum
                Atmos % coszen   (nlon,nlat), &
                Atmos % lprec    (nlon,nlat), &
                Atmos % fprec    (nlon,nlat), &
-               Atmos % gex_atm2lnd (nlon,nlat,gex_get_n_ex(MODEL_ATMOS,MODEL_LAND)))
+               Atmos % gex_atm2lnd (nlon,nlat,gex_get_n_ex(MODEL_ATMOS,MODEL_LAND)),&
+               Atmos % gex_lnd2atm (nlon,nlat,gex_get_n_ex(MODEL_LAND,MODEL_ATMOS)))
 
     Atmos % flux_sw                 = 0.0
     Atmos % flux_lw                 = 0.0
@@ -1603,6 +1612,8 @@ end subroutine ice_atm_bnd_type_chksum
     Atmos % flux_sw_vis_dif         = 0.0
     Atmos % coszen                  = 0.0
     Atmos % gex_atm2lnd             = 0.0
+    Atmos % gex_lnd2atm             = 0.0
+
 
   end subroutine alloc_atmos_data_type
 
@@ -1635,7 +1646,8 @@ end subroutine ice_atm_bnd_type_chksum
                 Atmos%coszen,                 &
                 Atmos%lprec,                  &
                 Atmos%fprec,                  &
-                Atmos%gex_atm2lnd        )
+                Atmos%gex_atm2lnd             &
+                )
   end subroutine dealloc_atmos_data_type
 
 end module atmos_model_mod
