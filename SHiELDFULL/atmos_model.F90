@@ -1585,6 +1585,7 @@ end subroutine ice_atm_bnd_type_chksum
     Atmos % flux_sw_vis_dif         = 0.0
     Atmos % coszen                  = 0.0
     Atmos % tr_bot                  = 0.0 
+    Atmos % gust                    = 1.0 
 
   end subroutine alloc_atmos_data_type
 
