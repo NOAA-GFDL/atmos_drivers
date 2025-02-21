@@ -1287,6 +1287,7 @@ subroutine atmos_model_restart(Atmos, timestamp)
   type (atmos_data_type),   intent(inout) :: Atmos
   character(len=*),  intent(in)           :: timestamp
 
+    call set_atmosphere_pelist()
     call atmosphere_restart(timestamp)
     if (.not. dycore_only) then
        if (.not. Atmos%write_only_coarse_intermediate_restarts) then
@@ -1298,6 +1299,7 @@ subroutine atmos_model_restart(Atmos, timestamp)
                IPD_Control, Atmos%coarse_domain, timestamp)
        endif
     endif
+    call mpp_set_current_pelist() !should exit with global pelist to accomodate the full coupler atmos clock
 end subroutine atmos_model_restart
 ! </SUBROUTINE>
 
