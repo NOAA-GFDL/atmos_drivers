@@ -1125,21 +1125,22 @@ subroutine apply_sfc_data_to_IPD (Surface_boundary)
      do ix = 1, blen
         i = Atm_block%index(nb)%ii(ix)
         j = Atm_block%index(nb)%jj(ix)
-        
-        ! KGao: set lhflx to -999, a value to indicate invalid coupled ocean points
-        IPD_Data(nb)%Sfcprop%lhflx(ix) = -999
 
         ! KGao: only update IPD surface data over the grid points satisfing the following conditions 
         !     1) they are 'sea' points according to SHiELD land-sea mask,
         !     2) valid surface fluxes and roughness lengthes are obtained via the coupler
+        !        (can be made more restrictive in future development)
 
+        !   set lhflx to -999, a value to indicate invalid coupled ocean points;
+        !       lhflx over valid ocean points will be updated below with physical values
+        !IPD_Data(nb)%Sfcprop%lhflx(ix) = -999
 
         if (nint(IPD_Data(nb)%Sfcprop%slmsk(ix)) == 0 .and. &
-                 Surface_boundary%rough_mom(i,j) .gt. 1e-9 .and. &
-                 Surface_boundary%rough_heat(i,j) .gt. 1e-9 .and. &
-                 Surface_boundary%u_star(i,j) .lt. 10 .and. &
-                 abs(Surface_boundary%shflx(i,j)) .lt. 1e5 .and. &
-                 abs(Surface_boundary%lhflx(i,j)) .lt. 0.01) then
+                 Surface_boundary%rough_mom(i,j) .gt. 1e-9) then ! .and. &
+                 !Surface_boundary%rough_heat(i,j) .gt. 1e-9 .and. &
+                 !Surface_boundary%u_star(i,j) .lt. 10 .and. &
+                 !abs(Surface_boundary%shflx(i,j)) .lt. 1e5 .and. &
+                 !abs(Surface_boundary%lhflx(i,j)) .lt. 0.01) then
 
           ! sea surface temp 
           IPD_Data(nb)%Sfcprop%tsfc(ix)   = Surface_boundary%t_ocean(i,j)
