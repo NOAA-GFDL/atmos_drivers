@@ -493,16 +493,6 @@ subroutine update_atmos_model_radiation (Surface_boundary, Atmos) ! name change 
     else
       if (mpp_pe() == mpp_root_pe() .and. debug) write(6,*) "setup step"
 
-!--------------------------------------------------------------------------------------------
-!--------------------------------------------------------------------------------------------
-!--- for atmos-ocean coupling: pass surface fluxes from coupler to SHiELD (by joseph and kun)
-      if (fullcoupler_fluxes) then
-        if (mpp_pe() == mpp_root_pe() .and. debug) write(6,*) "call apply_sfc_data_to_IPD"
-        call apply_sfc_data_to_IPD (Surface_boundary)
-      endif
-!--------------------------------------------------------------------------------------------
-!--------------------------------------------------------------------------------------------
-
 !--- update IPD_Control%jdat(8)
       jdat(:) = 0
       call get_date (Atmos%Time, jdat(1), jdat(2), jdat(3),  &
@@ -543,6 +533,17 @@ subroutine update_atmos_model_radiation (Surface_boundary, Atmos) ! name change 
       endif
 
       if (mpp_pe() == mpp_root_pe() .and. debug) write(6,*) "physics driver"
+
+!--------------------------------------------------------------------------------------------
+!--------------------------------------------------------------------------------------------
+!--- for atmos-ocean coupling: pass surface fluxes from coupler to SHiELD (by joseph and kun)
+      if (fullcoupler_fluxes) then
+        if (mpp_pe() == mpp_root_pe() .and. debug) write(6,*) "call apply_sfc_data_to_IPD"
+        call apply_sfc_data_to_IPD (Surface_boundary)
+      endif
+!--------------------------------------------------------------------------------------------
+!--------------------------------------------------------------------------------------------
+
 !--- execute the IPD atmospheric physics step1 subcomponent (main physics driver)
       call mpp_clock_begin(physClock)
 !$OMP parallel do default (none) &
@@ -1124,20 +1125,36 @@ subroutine apply_sfc_data_to_IPD (Surface_boundary)
      do ix = 1, blen
         i = Atm_block%index(nb)%ii(ix)
         j = Atm_block%index(nb)%jj(ix)
-        ! sensible heat flux (rho*cp_air*t_flux)
-        IPD_Data(nb)%Sfcprop%shflx(ix)  = Surface_boundary%shflx(i,j)
-        ! moisture flux (rho*q_flux)
-        IPD_Data(nb)%Sfcprop%lhflx(ix)  = Surface_boundary%lhflx(i,j)
-        ! only do ocean points for the fields below 
-        if (nint(IPD_Data(nb)%Sfcprop%slmsk(ix)) == 0) then
+
+        ! KGao: only update IPD surface data over the grid points satisfing the following conditions 
+        !     1) they are 'sea' points according to SHiELD land-sea mask,
+        !     2) valid surface fluxes and roughness lengthes are obtained via the coupler
+        !        (can be made more restrictive in future development)
+
+        !   set lhflx to -999, a value to indicate invalid coupled ocean points;
+        !       lhflx over valid ocean points will be updated below with physical values
+        !IPD_Data(nb)%Sfcprop%lhflx(ix) = -999
+
+        if (nint(IPD_Data(nb)%Sfcprop%slmsk(ix)) == 0 .and. &
+                 Surface_boundary%rough_mom(i,j) .gt. 1e-9) then ! .and. &
+                 !Surface_boundary%rough_heat(i,j) .gt. 1e-9 .and. &
+                 !Surface_boundary%u_star(i,j) .lt. 10 .and. &
+                 !abs(Surface_boundary%shflx(i,j)) .lt. 1e5 .and. &
+                 !abs(Surface_boundary%lhflx(i,j)) .lt. 0.01) then
+
           ! sea surface temp 
           IPD_Data(nb)%Sfcprop%tsfc(ix)   = Surface_boundary%t_ocean(i,j)
           ! roughness length for momentum in cm
           IPD_Data(nb)%Sfcprop%zorl(ix)   = 100.* Surface_boundary%rough_mom(i,j)
           ! roughness length for heat in cm
           IPD_Data(nb)%Sfcprop%ztrl(ix)   = 100.* Surface_boundary%rough_heat(i,j)
-          ! ustar
+          ! friction velocity (ustar)
           IPD_Data(nb)%Sfcprop%uustar(ix) = Surface_boundary%u_star(i,j)
+          ! sensible heat flux (rho*cp_air*t_flux)
+          IPD_Data(nb)%Sfcprop%shflx(ix)  = Surface_boundary%shflx(i,j)
+          ! moisture flux (rho*q_flux)
+          IPD_Data(nb)%Sfcprop%lhflx(ix)  = Surface_boundary%lhflx(i,j)
+
         endif
      enddo
   enddo
