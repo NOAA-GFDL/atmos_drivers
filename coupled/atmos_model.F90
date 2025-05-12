@@ -46,10 +46,10 @@ use mpp_mod,            only: mpp_clock_end, CLOCK_COMPONENT, mpp_error, mpp_chk
 use mpp_mod,            only: mpp_set_current_pelist, mpp_get_current_pelist, mpp_npes
 use mpp_domains_mod,    only: domain2d, mpp_get_ntile_count
 use mpp_mod,            only: input_nml_file
-use fms_mod,            only: fms_error_mesg, FATAL, NOTE, WARNING
+use fms_mod,            only: FATAL, NOTE, WARNING
 use fms_mod,            only: write_version_number, stdlog, stdout
 use fms_mod,            only: clock_flag_default
-use fms_mod,            only: fms_check_nml_error
+use fms,                only: fms_check_nml_error, fms_error_mesg
 use fms2_io_mod,        only: FmsNetcdfFile_t, FmsNetcdfDomainFile_t, &
                               register_restart_field, register_axis, unlimited, &
                               open_file, read_restart, write_restart, close_file, &

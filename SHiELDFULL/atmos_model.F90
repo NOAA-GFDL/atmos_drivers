@@ -50,8 +50,8 @@ use mpp_mod,            only: mpp_get_current_pelist_name, mpp_set_current_pelis
 use mpp_mod,            only: input_nml_file, stdlog, stdout
 use fms2_io_mod,        only: file_exists
 use fms_mod,            only: write_version_number
-use fms_mod,            only: clock_flag_default, fms_error_mesg
-use fms_mod,            only: fms_check_nml_error
+use fms_mod,            only: clock_flag_default
+use fms,                only: fms_check_nml_error, fms_error_mesg
 use diag_manager_mod,   only: diag_send_complete_instant
 use time_manager_mod,   only: time_type, get_time, get_date, &
                               operator(+), operator(-)
