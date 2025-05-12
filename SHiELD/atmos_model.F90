@@ -51,7 +51,7 @@ use fms2_io_mod,        only: file_exists
 use fms_mod,            only: write_version_number
 use fms_mod,            only: clock_flag_default, error_mesg
 use fms_mod,            only: check_nml_error
-use diag_manager_mod,   only: diag_send_complete_instant
+use diag_manager_mod,   only: diag_send_complete
 use time_manager_mod,   only: time_type, get_time, get_date, &
                               operator(+), operator(-)
 use field_manager_mod,  only: MODEL_ATMOS
@@ -764,10 +764,10 @@ subroutine update_atmos_model_state (Atmos)
                             Atm(mygrid)%coarse_graining%write_coarse_diagnostics,&
                             real(Atm(mygrid)%delp(is:ie,js:je,:), kind=kind_phys), &
                             Atmos%coarsening_strategy, real(Atm(mygrid)%ptop, kind=kind_phys))
-      call diag_send_complete_instant (Atmos%Time)
       if (mod(isec,nint(3600*IPD_Control%fhzero)) == 0) diag_time = Atmos%Time
     endif
 
+    call diag_send_complete(Atmos%Time)
     call mpp_clock_end(diagClock)
     call mpp_clock_end(shieldClock)
 
