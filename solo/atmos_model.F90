@@ -148,7 +148,7 @@ contains
 !----- read namelist -------
 
    read (fms_mpp_input_nml_file, nml=main_nml, iostat=io)
-   ierr = check_nml_error(io, 'main_nml')
+   ierr = fms_check_nml_error(io, 'main_nml')
 
 !----- write namelist to logfile -----
 
@@ -156,7 +156,7 @@ contains
    if ( fms_mpp_pe() == fms_mpp_root_pe() ) write (logunit, nml=main_nml)
 
    if (dt_atmos == 0) then
-     call error_mesg ('program atmos_model', 'dt_atmos has not been specified', FATAL)
+     call fms_error_mesg ('program atmos_model', 'dt_atmos has not been specified', FATAL)
    endif
 
    if(fms_mpp_lowercase(calendar) == 'no_calendar') then
@@ -170,7 +170,7 @@ contains
    else if(fms_mpp_lowercase(calendar) == 'gregorian') then
      calendartype = GREGORIAN
    else
-     call error_mesg ('program atmos_model', trim(calendar)//' is an invalid value for calendar', FATAL)
+     call fms_error_mesg ('program atmos_model', trim(calendar)//' is an invalid value for calendar', FATAL)
    endif
    call fms_time_manager_set_calendar_type(calendartype)
 
@@ -277,13 +277,13 @@ contains
 !-----------------------------------------------------------------------
 !----- initial (base) time must not be greater than current time -----
 
-   if ( Time_init > Time ) call error_mesg ('program atmos_model',  &
+   if ( Time_init > Time ) call fms_error_mesg ('program atmos_model',  &
                    'initial time is greater than current time', FATAL)
 
 !----- make sure run length is a multiple of atmos time step ------
 
    if ( num_atmos_calls * Time_step_atmos /= Run_length )  &
-        call error_mesg ('program atmos_model',  &
+        call fms_error_mesg ('program atmos_model',  &
            'run length must be multiple of atmosphere time step', FATAL)
 
 !-----------------------------------------------------------------------
@@ -343,7 +343,7 @@ contains
 
 !----- check time versus expected ending time ----
 
-      if (Time /= Time_end) call error_mesg ('program atmos_model',  &
+      if (Time /= Time_end) call fms_error_mesg ('program atmos_model',  &
               'final time does not match expected ending time', WARNING)
 
 !----- write restart file ------

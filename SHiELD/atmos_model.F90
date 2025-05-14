@@ -49,8 +49,8 @@ use mpp_mod,            only: mpp_get_current_pelist_name
 use mpp_mod,            only: input_nml_file, stdlog, stdout
 use fms2_io_mod,        only: file_exists
 use fms_mod,            only: write_version_number
-use fms_mod,            only: clock_flag_default, error_mesg
-use fms_mod,            only: check_nml_error
+use fms_mod,            only: clock_flag_default
+use fms,                only: fms_check_nml_error, fms_error_mesg
 use diag_manager_mod,   only: diag_send_complete
 use time_manager_mod,   only: time_type, get_time, get_date, &
                               operator(+), operator(-)
@@ -446,7 +446,7 @@ subroutine atmos_model_init (Atmos, Time_init, Time, Time_step, iau_offset)
 
    IF ( file_exists('input.nml')) THEN
       read(input_nml_file, nml=atmos_model_nml, iostat=io)
-      ierr = check_nml_error(io, 'atmos_model_nml')
+      ierr = fms_check_nml_error(io, 'atmos_model_nml')
    endif
 !-----------------------------------------------------------------------
    call atmosphere_resolution (nlon, nlat, global=.false.)
