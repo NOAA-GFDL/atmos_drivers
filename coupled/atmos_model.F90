@@ -46,10 +46,10 @@ use mpp_mod,            only: mpp_clock_end, CLOCK_COMPONENT, mpp_error, mpp_chk
 use mpp_mod,            only: mpp_set_current_pelist, mpp_get_current_pelist, mpp_npes
 use mpp_domains_mod,    only: domain2d, mpp_get_ntile_count
 use mpp_mod,            only: input_nml_file
-use fms_mod,            only: error_mesg, FATAL, NOTE, WARNING
+use fms_mod,            only: FATAL, NOTE, WARNING
 use fms_mod,            only: write_version_number, stdlog, stdout
 use fms_mod,            only: clock_flag_default
-use fms_mod,            only: check_nml_error
+use fms,                only: fms_check_nml_error, fms_error_mesg
 use fms2_io_mod,        only: FmsNetcdfFile_t, FmsNetcdfDomainFile_t, &
                               register_restart_field, register_axis, unlimited, &
                               open_file, read_restart, write_restart, close_file, &
@@ -791,7 +791,7 @@ subroutine atmos_model_init (Atmos, Time_init, Time, Time_step, &
 
    IF ( file_exists('input.nml')) THEN
       read(input_nml_file, nml=atmos_model_nml, iostat=io)
-      ierr = check_nml_error(io, 'atmos_model_nml')
+      ierr = fms_check_nml_error(io, 'atmos_model_nml')
    endif
    do_netcdf_restart = .true. !< Always use netcdf
 
@@ -799,12 +799,12 @@ subroutine atmos_model_init (Atmos, Time_init, Time, Time_step, &
 ! how many tracers have been registered?
 !  (will print number below)
    call get_number_tracers ( MODEL_ATMOS, ntrace, ntprog, ntdiag, ntfamily )
-   if ( ntfamily > 0 ) call error_mesg ('atmos_model', 'ntfamily > 0', FATAL)
+   if ( ntfamily > 0 ) call fms_error_mesg ('atmos_model', 'ntfamily > 0', FATAL)
    ivapor = get_tracer_index( MODEL_ATMOS, 'sphum' )
    if (ivapor==NO_TRACER) &
         ivapor = get_tracer_index( MODEL_ATMOS, 'mix_rat' )
    if (ivapor==NO_TRACER) &
-        call error_mesg('atmos_model_init', 'Cannot find water vapor in ATM tracer table', FATAL)
+        call fms_error_mesg('atmos_model_init', 'Cannot find water vapor in ATM tracer table', FATAL)
 
 !-----------------------------------------------------------------------
 ! initialize atmospheric model -----
@@ -947,7 +947,7 @@ subroutine atmos_model_init (Atmos, Time_init, Time, Time_step, &
    endif
 
    if (atm_restart_exist .or. til_restart_exist) then
-       if (ipts /= mlon .or. jpts /= mlat) call error_mesg &
+       if (ipts /= mlon .or. jpts /= mlat) call fms_error_mesg &
                ('coupled_atmos_init', 'incorrect resolution on restart file', WARNING)
 
 !---- if the time step has changed then convert ----
