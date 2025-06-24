@@ -1149,7 +1149,7 @@ subroutine apply_sfc_data_to_IPD (Surface_boundary)
         !       lhflx over valid ocean points will be updated below with physical values
         !IPD_Data(nb)%Sfcprop%lhflx(ix) = -999
 
-        if (nint(IPD_Data(nb)%Sfcprop%slmsk(ix)) == 0 .and. &
+        if ( Surface_boundary%frac_open_sea(i,j) .gt. 0.999999 .and. &
                  Surface_boundary%rough_mom(i,j) .gt. 1e-9) then ! .and. &
                  !Surface_boundary%rough_heat(i,j) .gt. 1e-9 .and. &
                  !Surface_boundary%u_star(i,j) .lt. 10 .and. &
