@@ -1098,7 +1098,7 @@ subroutine update_atmos_model_state (Atmos)
       if (mod(isec,nint(3600*IPD_Control%fhzero)) == 0) diag_time = Atmos%Time
     endif
 
-    call diag_send_complete(Atmos%Time)
+    call diag_send_complete(Atmos%Time_step)
     call mpp_clock_end(diagClock)
     call mpp_clock_end(shieldClock)
     call mpp_set_current_pelist() !should exit with global pelist to accomodate the full coupler atmos clock
