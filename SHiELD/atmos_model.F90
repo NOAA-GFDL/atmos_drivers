@@ -1248,7 +1248,7 @@ subroutine apply_fluxes_from_IPD_to_Atmos ( Atmos )
 
         ! total net and visible net; not used on exchange grid (not important)
         Atmos%flux_sw(i,j)     = Atmos%flux_sw_dir(i,j) + Atmos%flux_sw_dif(i,j)
-        Atmos%flux_sw_vis(i,j) = Atmos%flux_sw_vis_dir(i,j) + Atmos%flux_sw_vis_dir(i,j)
+        Atmos%flux_sw_vis(i,j) = Atmos%flux_sw_vis_dir(i,j) + Atmos%flux_sw_vis_dif(i,j)
 
         ! --- longwave
         ! total downward lw flux at sfc
