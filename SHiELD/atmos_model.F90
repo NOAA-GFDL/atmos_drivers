@@ -385,9 +385,9 @@ if (fullcoupler_fluxes == 0) then
   ! do nothing
 else
   if (mpp_pe() == mpp_root_pe() .and. debug) write(6,*) "call apply_sfc_data_to_IPD"
-  if (fullcoupler_fluxes == 1) then
+  if (fullcoupler_fluxes == 1) then ! Only consider full coupler fluxes from ocean points - exclude land points (for SHiELD+MOM6)
     call apply_sfc_data_to_IPD (Surface_boundary, ocean_points_only=.true.)
-  elseif (fullcoupler_fluxes == 2) then
+  elseif (fullcoupler_fluxes == 2) then ! Take all fluxes from the coupler ocean and land points (for the fully coupled model with LM4)
     call apply_sfc_data_to_IPD (Surface_boundary, ocean_points_only=.false.)
   else
     call mpp_error(FATAL, "Invalid option for fullcoupler_fluxes, should be 0, 1, or 2 check atmos_model.F90 for more info")
@@ -528,9 +528,9 @@ if (fullcoupler_fluxes == 0) then
   ! do nothing
 else
   if (mpp_pe() == mpp_root_pe() .and. debug) write(6,*) "call apply_sfc_data_to_IPD"
-  if (fullcoupler_fluxes == 1) then
+  if (fullcoupler_fluxes == 1) then ! Only consider full coupler fluxes from ocean points - exclude land points (for SHiELD+MOM6)
     call apply_sfc_data_to_IPD (Surface_boundary, ocean_points_only=.true.)
-  elseif (fullcoupler_fluxes == 2) then
+  elseif (fullcoupler_fluxes == 2) then ! Take all fluxes from the coupler ocean and land points (for the fully coupled model with LM4)
     call apply_sfc_data_to_IPD (Surface_boundary, ocean_points_only=.false.)
   else
     call mpp_error(FATAL, "Invalid option for fullcoupler_fluxes, should be 0, 1, or 2 check atmos_model.F90 for more info")
@@ -1211,6 +1211,13 @@ subroutine apply_sfc_data_to_IPD (Surface_boundary, ocean_points_only)
         !   set lhflx to -999, a value to indicate invalid coupled ocean points;
         !       lhflx over valid ocean points will be updated below with physical values
         !IPD_Data(nb)%Sfcprop%lhflx(ix) = -999
+
+        ! Joseph:
+        ! - ocean_points_only=.false. will bypass this if-statement and consider populating the
+        ! the physics surface quantites directly from the full coupler surface_boundary quantities
+        ! over all grid points.
+        ! - ocean_points_only=.true. will trigger the second part of the if-statement to
+        ! populate the physics surface quantities from the full coupler over ocean points only.
 
         if ( .not. ocean_points_only .or. (Surface_boundary%frac_open_sea(i,j) .gt. 0.999999 .and. &
                  Surface_boundary%rough_mom(i,j) .gt. 1e-9)) then ! .and. &
