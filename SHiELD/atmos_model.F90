@@ -385,9 +385,11 @@ if (fullcoupler_fluxes == 0) then
   ! do nothing
 else
   if (mpp_pe() == mpp_root_pe() .and. debug) write(6,*) "call apply_sfc_data_to_IPD"
-  if (fullcoupler_fluxes == 1) then ! Only consider full coupler fluxes from ocean points - exclude land points (for SHiELD+MOM6)
+  ! Only consider full coupler fluxes from ocean points - exclude land points (for SHiELD+MOM6)
+  if (fullcoupler_fluxes == 1) then
     call apply_sfc_data_to_IPD (Surface_boundary, ocean_points_only=.true.)
-  elseif (fullcoupler_fluxes == 2) then ! Take all fluxes from the coupler ocean and land points (for the fully coupled model with LM4)
+  ! Take all fluxes from the coupler ocean and land points (for the fully coupled model with LM4)
+  elseif (fullcoupler_fluxes == 2) then
     call apply_sfc_data_to_IPD (Surface_boundary, ocean_points_only=.false.)
   else
     call mpp_error(FATAL, "Invalid option for fullcoupler_fluxes, should be 0, 1, or 2 check atmos_model.F90 for more info")
@@ -528,9 +530,11 @@ if (fullcoupler_fluxes == 0) then
   ! do nothing
 else
   if (mpp_pe() == mpp_root_pe() .and. debug) write(6,*) "call apply_sfc_data_to_IPD"
-  if (fullcoupler_fluxes == 1) then ! Only consider full coupler fluxes from ocean points - exclude land points (for SHiELD+MOM6)
+  ! Only consider full coupler fluxes from ocean points - exclude land points (for SHiELD+MOM6)
+  if (fullcoupler_fluxes == 1) then
     call apply_sfc_data_to_IPD (Surface_boundary, ocean_points_only=.true.)
-  elseif (fullcoupler_fluxes == 2) then ! Take all fluxes from the coupler ocean and land points (for the fully coupled model with LM4)
+  ! Take all fluxes from the coupler ocean and land points (for the fully coupled model with LM4)
+  elseif (fullcoupler_fluxes == 2) then
     call apply_sfc_data_to_IPD (Surface_boundary, ocean_points_only=.false.)
   else
     call mpp_error(FATAL, "Invalid option for fullcoupler_fluxes, should be 0, 1, or 2 check atmos_model.F90 for more info")
