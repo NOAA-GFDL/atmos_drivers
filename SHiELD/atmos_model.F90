@@ -226,6 +226,8 @@ type land_ice_atmos_boundary_type
                                                               ! from Ice%t_surf through xgrid !joseph
    real, dimension(:,:),   pointer :: u_ref          =>null() ! surface zonal wind (cjg: PBL depth mods) !bqx
    real, dimension(:,:),   pointer :: v_ref          =>null() ! surface meridional wind (cjg: PBL depth mods) !bqx
+   real, dimension(:,:),   pointer :: un_ref         =>null() ! surface neutral zonal wind, required by ocean surface wave model
+   real, dimension(:,:),   pointer :: vn_ref         =>null() ! surface neutral meridional wind, required by ocean surface wave model
    real, dimension(:,:),   pointer :: t_ref          =>null() ! surface air temperature (cjg: PBL depth mods)
    real, dimension(:,:),   pointer :: q_ref          =>null() ! surface air specific humidity (cjg: PBL depth mods)
    real, dimension(:,:),   pointer :: albedo         =>null() ! surface albedo for radiation calculations
