@@ -43,7 +43,7 @@ module atmos_model_mod
 
 use mpp_mod,            only: mpp_pe, mpp_root_pe, mpp_clock_id, mpp_clock_begin
 use mpp_mod,            only: mpp_clock_end, CLOCK_COMPONENT, MPP_CLOCK_SYNC
-use mpp_mod,            only: mpp_min, mpp_max, mpp_error, mpp_chksum
+use mpp_mod,            only: mpp_min, mpp_max, mpp_error, mpp_chksum, FATAL
 use mpp_domains_mod,   only : mpp_get_compute_domain
 use mpp_domains_mod,    only: domain2d
 use mpp_mod,            only: mpp_get_current_pelist_name, mpp_set_current_pelist
@@ -281,8 +281,11 @@ logical :: sync            = .false.
 logical :: first_time_step = .false.
 logical :: fprint          = .true.
 logical :: ignore_rst_cksum = .false.   ! enforce (.false.) or override (.true.) data integrity restart checksums
-logical :: fullcoupler_fluxes = .false. ! controls if using air-sea surface fluxes from the full coupler to force SHiELD
-                                        ! if false, SHiELD will not feel the interactive ocean model (one-way coupling) 
+
+integer :: fullcoupler_fluxes = 0   ! 0: no fluxes from the fullcoupler to the physics
+                                    ! 1: fluxes over ocean points (for shiemom)
+                                    ! 2: fluxes over ocean and land points (for shiemom_lm4)
+
 real, dimension(4096) :: fdiag = 0. ! xic: TODO: this is hard coded, space can run out in some cases. Should make it allocatable.
 logical :: fdiag_override = .false. ! lmh: if true overrides fdiag and fhzer: all quantities are zeroed out
                                     ! after every calcluation, output interval and accumulation/avg/max/min
@@ -378,9 +381,19 @@ call mpp_clock_begin(shieldClock)
 !--------------------------------------------------------------------------------------------
 !--------------------------------------------------------------------------------------------
 !--- for atmos-ocean coupling: pass surface fluxes from coupler to SHiELD (by joseph and kun)
-if (fullcoupler_fluxes) then
+if (fullcoupler_fluxes == 0) then
+  ! do nothing
+else
   if (mpp_pe() == mpp_root_pe() .and. debug) write(6,*) "call apply_sfc_data_to_IPD"
-  call apply_sfc_data_to_IPD (Surface_boundary)
+  ! Only consider full coupler fluxes from ocean points - exclude land points (for SHiELD+MOM6)
+  if (fullcoupler_fluxes == 1) then
+    call apply_sfc_data_to_IPD (Surface_boundary, ocean_points_only=.true.)
+  ! Take all fluxes from the coupler ocean and land points (for the fully coupled model with LM4)
+  elseif (fullcoupler_fluxes == 2) then
+    call apply_sfc_data_to_IPD (Surface_boundary, ocean_points_only=.false.)
+  else
+    call mpp_error(FATAL, "Invalid option for fullcoupler_fluxes, should be 0, 1, or 2 check atmos_model.F90 for more info")
+  endif
 endif
 !--------------------------------------------------------------------------------------------
 !--------------------------------------------------------------------------------------------
@@ -513,10 +526,21 @@ subroutine update_atmos_model_up( Surface_boundary, Atmos )
 !--------------------------------------------------------------------------------------------
 !--------------------------------------------------------------------------------------------
 !--- for atmos-ocean coupling: pass surface fluxes from coupler to SHiELD (by joseph and kun)
-      if (fullcoupler_fluxes) then
-        if (mpp_pe() == mpp_root_pe() .and. debug) write(6,*) "call apply_sfc_data_to_IPD"
-        call apply_sfc_data_to_IPD (Surface_boundary)
-      endif
+if (fullcoupler_fluxes == 0) then
+  ! do nothing
+else
+  if (mpp_pe() == mpp_root_pe() .and. debug) write(6,*) "call apply_sfc_data_to_IPD"
+  ! Only consider full coupler fluxes from ocean points - exclude land points (for SHiELD+MOM6)
+  if (fullcoupler_fluxes == 1) then
+    call apply_sfc_data_to_IPD (Surface_boundary, ocean_points_only=.true.)
+  ! Take all fluxes from the coupler ocean and land points (for the fully coupled model with LM4)
+  elseif (fullcoupler_fluxes == 2) then
+    call apply_sfc_data_to_IPD (Surface_boundary, ocean_points_only=.false.)
+  else
+    call mpp_error(FATAL, "Invalid option for fullcoupler_fluxes, should be 0, 1, or 2 check atmos_model.F90 for more info")
+  endif
+endif
+!
 !--------------------------------------------------------------------------------------------
 !--------------------------------------------------------------------------------------------
     call mpp_set_current_pelist() !should exit with global pelist to accomodate the full coupler atmos clock
@@ -864,14 +888,7 @@ subroutine atmos_model_init (Atmos, Time_init, Time, Time_step, do_concurrent_ra
 
    call IPD_initialize (IPD_Control, IPD_Data, IPD_Diag, IPD_Restart, Init_parm)
 
-! ensure sfc_coupled is properly set (must be true when using two-way atmos-ocean coupling)
-   if (fullcoupler_fluxes) then
-        if (mpp_pe() == mpp_root_pe()) print *, "using two-way atmos-ocean coupling - enforce sfc_coupled in SHiELD phys to be true"
-        IPD_Control%sfc_coupled = .true.
-   else
-        if (mpp_pe() == mpp_root_pe()) print *, "not using two-way atmos-ocean coupling - enforce sfc_coupled in SHiELD phys to be false"
-        IPD_Control%sfc_coupled = .false.
-   endif
+   IPD_Control%sfc_coupled = fullcoupler_fluxes
 
 #ifdef STOCHY
    if (IPD_Control%do_sppt .OR. IPD_Control%do_shum .OR. IPD_Control%do_skeb .OR. IPD_Control%do_sfcperts) then
@@ -1170,7 +1187,7 @@ subroutine update_atmos_model_state (Atmos)
 !     call apply_sfc_data_to_IPD (Surface_boundary)
 ! </TEMPLATE>
 
-subroutine apply_sfc_data_to_IPD (Surface_boundary)
+subroutine apply_sfc_data_to_IPD (Surface_boundary, ocean_points_only)
 !
 !By Joseph and Kun: 
 !Here we use sfc-layer variables/fluxes over ocean points from 
@@ -1178,9 +1195,11 @@ subroutine apply_sfc_data_to_IPD (Surface_boundary)
 !to update variables in SHiELD physics 
 !
   type(land_ice_atmos_boundary_type), intent(in) :: Surface_boundary
+  logical, intent(in) :: ocean_points_only
+
   integer :: nb, blen, ix, i, j
 
-  !$OMP parallel do default(none) shared(Atm_block,IPD_Data,Surface_boundary) &
+  !$OMP parallel do default(none) shared(Atm_block,IPD_Data,Surface_boundary, ocean_points_only) &
   !$OMP                          private(blen,i,j)
   do nb = 1,Atm_block%nblks
      blen = Atm_block%blksz(nb)
@@ -1197,8 +1216,15 @@ subroutine apply_sfc_data_to_IPD (Surface_boundary)
         !       lhflx over valid ocean points will be updated below with physical values
         !IPD_Data(nb)%Sfcprop%lhflx(ix) = -999
 
-        if ( Surface_boundary%frac_open_sea(i,j) .gt. 0.999999 .and. &
-                 Surface_boundary%rough_mom(i,j) .gt. 1e-9) then ! .and. &
+        ! Joseph:
+        ! - ocean_points_only=.false. will bypass this if-statement and consider populating the
+        ! the physics surface quantites directly from the full coupler surface_boundary quantities
+        ! over all grid points.
+        ! - ocean_points_only=.true. will trigger the second part of the if-statement to
+        ! populate the physics surface quantities from the full coupler over ocean points only.
+
+        if ( .not. ocean_points_only .or. (Surface_boundary%frac_open_sea(i,j) .gt. 0.999999 .and. &
+                 Surface_boundary%rough_mom(i,j) .gt. 1e-9)) then ! .and. &
                  !Surface_boundary%rough_heat(i,j) .gt. 1e-9 .and. &
                  !Surface_boundary%u_star(i,j) .lt. 10 .and. &
                  !abs(Surface_boundary%shflx(i,j)) .lt. 1e5 .and. &
@@ -1216,6 +1242,7 @@ subroutine apply_sfc_data_to_IPD (Surface_boundary)
           IPD_Data(nb)%Sfcprop%shflx(ix)  = Surface_boundary%shflx(i,j)
           ! moisture flux (rho*q_flux)
           IPD_Data(nb)%Sfcprop%lhflx(ix)  = Surface_boundary%lhflx(i,j)
+          IPD_Data(nb)%Sfcprop%qsfc(ix)  = Surface_boundary%q_ref(i,j)
 
         endif
      enddo
