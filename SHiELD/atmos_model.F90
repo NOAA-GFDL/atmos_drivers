@@ -1305,23 +1305,19 @@ subroutine apply_fluxes_from_IPD_to_Atmos ( Atmos )
         ! cosine of zenith angle
         Atmos%coszen(i,j) = IPD_Data(nb)%Coupling%coszena(ix)
 
-        ! visible down
-        Atmos%flux_sw_down_vis_dir(i,j) = visbmd                         ! downward visible sw flux at surface - direct
-        Atmos%flux_sw_down_vis_dif(i,j) = visdfd                         ! downward visible sw flux at surface - diffused
+        ! visible only
+        Atmos%flux_sw_down_vis_dir(i,j) = visbmd              ! downward visible sw flux at surface - direct
+        Atmos%flux_sw_down_vis_dif(i,j) = visdfd              ! downward visible sw flux at surface - diffused
+        Atmos%flux_sw_vis_dir(i,j) = visbmd                   ! downward visible sw flux at surface - direct
+        Atmos%flux_sw_vis_dif(i,j) = visdfd                   ! downward visible sw flux at surface - diffused
 
-        ! visible net
-        Atmos%flux_sw_vis_dir(i,j) = visbmd !- visbmu                    ! net (down-up) visible sw flux at surface - direct
-        Atmos%flux_sw_vis_dif(i,j) = visdfd !- visdfu                    ! net (down-up) visible sw flux at surface - diffused
+        ! total
+        Atmos%flux_sw_down_total_dir(i,j) = nirbmd + visbmd   ! downward total sw flux at surface - direct
+        Atmos%flux_sw_down_total_dif(i,j) = nirdfd + visdfd   ! downward total sw flux at surface - diffused
+        Atmos%flux_sw_dir(i,j) = nirbmd + visbmd              ! downward total sw flux at surface - direct
+        Atmos%flux_sw_dif(i,j) = nirdfd + visdfd              ! downward total sw flux at surface - diffused
 
-        ! total down
-        Atmos%flux_sw_down_total_dir(i,j) = nirbmd + visbmd              ! downward total sw flux at surface - direct
-        Atmos%flux_sw_down_total_dif(i,j) = nirdfd + visdfd              ! downward total sw flux at surface - diffused
-
-        ! total net
-        Atmos%flux_sw_dir(i,j) = (nirbmd + visbmd) !- (nirbmu + visbmu)  ! net (down-up) sw flux at surface - direct
-        Atmos%flux_sw_dif(i,j) = (nirdfd + visdfd) !- (nirdfu + visbmu)  ! net (down-up) sw flux at surface - diffused
-
-        ! total net and visible net; not used on exchange grid (not important)
+        ! vars below are not projected onto the exchange grid in the coupler and therefore are not important
         Atmos%flux_sw(i,j)     = Atmos%flux_sw_dir(i,j) + Atmos%flux_sw_dif(i,j)
         Atmos%flux_sw_vis(i,j) = Atmos%flux_sw_vis_dir(i,j) + Atmos%flux_sw_vis_dif(i,j)
 
