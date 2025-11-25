@@ -664,7 +664,7 @@ subroutine update_atmos_model_radiation (Surface_boundary, Atmos) ! name change 
       if (mpp_pe() == mpp_root_pe() .and. debug) write(6,*) "physics driver"
     endif ! dycore only
     call mpp_clock_end(shieldClock)
-    call mpp_set_current_pelist() !should exit with global pelist to accomodate the full coupler atmos clock
+    call mpp_set_current_pelist(Atmos%pelist, no_sync=.TRUE.) !should exit with global pelist to accomodate the full coupler atmos clock
 
 !-----------------------------------------------------------------------
  !end subroutine update_atmos_radiation_physics
@@ -1008,7 +1008,7 @@ subroutine atmos_model_init (Atmos, Time_init, Time, Time_step, do_concurrent_ra
                             Atmos % lon_bnd(:,:),  &
                             Atmos % lat_bnd(:,:), Atmos % area)
 
-   call mpp_set_current_pelist() !should exit with global pelist to accomodate the full coupler atmos clock
+   call mpp_set_current_pelist(Atmos%pelist, no_sync=.TRUE.) !should exit with global pelist to accomodate the full coupler atmos clock
 
 end subroutine atmos_model_init
 ! </SUBROUTINE>
@@ -1034,7 +1034,7 @@ subroutine update_atmos_model_dynamics (Atmos)
     call mpp_clock_begin(fv3Clock)
     call atmosphere_dynamics (Atmos%Time)
     call mpp_clock_end(fv3Clock)
-    call mpp_set_current_pelist() !should exit with global pelist to accomodate the full coupler atmos clock
+    call mpp_set_current_pelist(Atmos%pelist, no_sync=.TRUE.) !should exit with global pelist to accomodate the full coupler atmos clock
 
 end subroutine update_atmos_model_dynamics
 ! </SUBROUTINE>
@@ -1166,7 +1166,7 @@ subroutine update_atmos_model_state (Atmos)
     call diag_send_complete(Atmos%Time_step)
     call mpp_clock_end(diagClock)
     call mpp_clock_end(shieldClock)
-    call mpp_set_current_pelist() !should exit with global pelist to accomodate the full coupler atmos clock
+    call mpp_set_current_pelist(Atmos%pelist, no_sync=.TRUE.) !should exit with global pelist to accomodate the full coupler atmos clock
 
  end subroutine update_atmos_model_state
 ! </SUBROUTINE>
@@ -1405,7 +1405,7 @@ subroutine atmos_model_restart(Atmos, timestamp)
                IPD_Control, Atmos%coarse_domain, timestamp)
        endif
     endif
-    call mpp_set_current_pelist() !should exit with global pelist to accomodate the full coupler atmos clock
+    call mpp_set_current_pelist(Atmos%pelist, no_sync=.TRUE.) !should exit with global pelist to accomodate the full coupler atmos clock
 end subroutine atmos_model_restart
 ! </SUBROUTINE>
 
