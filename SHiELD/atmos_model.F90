@@ -1277,12 +1277,12 @@ subroutine apply_fluxes_from_IPD_to_Atmos ( Atmos )
   type (atmos_data_type), intent(inout) :: Atmos
   integer :: nb, blen, ix, i, j
 
-  real :: nirbmdi, visbmdi, nirbmui, visbmui
-  real :: nirdfdi, visdfdi, nirdfui, visdfui
+  real :: nirbmd, visbmd, nirbmu, visbmu
+  real :: nirdfd, visdfd, nirdfu, visdfu
 
   !$OMP parallel do default(none) shared(Atm_block,Atmos,IPD_Data,IPD_Control) &
-  !$OMP                          private(blen,i,j,nirbmdi,visbmdi,nirbmui,visbmui, &
-  !$OMP                                  nirdfdi,visdfdi,nirdfui,visdfui)
+  !$OMP                          private(blen,i,j,nirbmd,visbmd,nirbmu,visbmu, &
+  !$OMP                                  nirdfd,visdfd,nirdfu,visdfu)
   do nb = 1,Atm_block%nblks
      blen = Atm_block%blksz(nb)
      do ix = 1, blen
@@ -1292,41 +1292,40 @@ subroutine apply_fluxes_from_IPD_to_Atmos ( Atmos )
         ! --- shortwave
 
         ! eight sw components: dir/dif; nir/vis; down/up
-        nirbmdi = IPD_Data(nb)%Coupling%nirbmdi(ix)
-        nirdfdi = IPD_Data(nb)%Coupling%nirdfdi(ix)
-        visbmdi = IPD_Data(nb)%Coupling%visbmdi(ix)
-        visdfdi = IPD_Data(nb)%Coupling%visdfdi(ix)
-        nirbmui = IPD_Data(nb)%Coupling%nirbmui(ix)
-        nirdfui = IPD_Data(nb)%Coupling%nirdfui(ix)
-        visbmui = IPD_Data(nb)%Coupling%visbmui(ix)
-        visdfui = IPD_Data(nb)%Coupling%visdfui(ix)
+        nirbmd = IPD_Data(nb)%Coupling%nirbmda(ix)
+        nirdfd = IPD_Data(nb)%Coupling%nirdfda(ix)
+        visbmd = IPD_Data(nb)%Coupling%visbmda(ix)
+        visdfd = IPD_Data(nb)%Coupling%visdfda(ix)
+        ! kgao 8/6/25:
+        ! the upward components below are obtained as downward * albedo in shield;
+        ! should not be used since albedo effect will be considered in FMScoupler
+        nirbmu = IPD_Data(nb)%Coupling%nirbmua(ix)
+        nirdfu = IPD_Data(nb)%Coupling%nirdfua(ix)
+        visbmu = IPD_Data(nb)%Coupling%visbmua(ix)
+        visdfu = IPD_Data(nb)%Coupling%visdfua(ix)
 
         ! cosine of zenith angle
-        Atmos%coszen(i,j) = IPD_Data(nb)%Radtend%coszen(ix)
+        Atmos%coszen(i,j) = IPD_Data(nb)%Coupling%coszena(ix)
 
-        ! visible down
-        Atmos%flux_sw_down_vis_dir(i,j) = visbmdi                         ! downward visible sw flux at surface - direct
-        Atmos%flux_sw_down_vis_dif(i,j) = visdfdi                         ! downward visible sw flux at surface - diffused
+        ! visible only
+        Atmos%flux_sw_down_vis_dir(i,j) = visbmd              ! downward visible sw flux at surface - direct
+        Atmos%flux_sw_down_vis_dif(i,j) = visdfd              ! downward visible sw flux at surface - diffused
+        Atmos%flux_sw_vis_dir(i,j) = visbmd                   ! downward visible sw flux at surface - direct
+        Atmos%flux_sw_vis_dif(i,j) = visdfd                   ! downward visible sw flux at surface - diffused
 
-        ! visible net
-        Atmos%flux_sw_vis_dir(i,j) = visbmdi - visbmui                    ! net (down-up) visible sw flux at surface - direct
-        Atmos%flux_sw_vis_dif(i,j) = visdfdi - visdfui                    ! net (down-up) visible sw flux at surface - diffused
+        ! total
+        Atmos%flux_sw_down_total_dir(i,j) = nirbmd + visbmd   ! downward total sw flux at surface - direct
+        Atmos%flux_sw_down_total_dif(i,j) = nirdfd + visdfd   ! downward total sw flux at surface - diffused
+        Atmos%flux_sw_dir(i,j) = nirbmd + visbmd              ! downward total sw flux at surface - direct
+        Atmos%flux_sw_dif(i,j) = nirdfd + visdfd              ! downward total sw flux at surface - diffused
 
-        ! total down
-        Atmos%flux_sw_down_total_dir(i,j) = nirbmdi + visbmdi             ! downward total sw flux at surface - direct
-        Atmos%flux_sw_down_total_dif(i,j) = nirdfdi + visdfdi             ! downward total sw flux at surface - diffused
-
-        ! total net
-        Atmos%flux_sw_dir(i,j) = (nirbmdi + visbmdi) - (nirbmui + visbmui)! net (down-up) sw flux at surface - direct
-        Atmos%flux_sw_dif(i,j) = (nirdfdi + visdfdi) - (nirdfui + visbmui)! net (down-up) sw flux at surface - diffused
-
-        ! total net and visible net; not used on exchange grid (not important)
+        ! vars below are not projected onto the exchange grid in the coupler and therefore are not important
         Atmos%flux_sw(i,j)     = Atmos%flux_sw_dir(i,j) + Atmos%flux_sw_dif(i,j)
-        Atmos%flux_sw_vis(i,j) = Atmos%flux_sw_vis_dir(i,j) + Atmos%flux_sw_vis_dir(i,j)
+        Atmos%flux_sw_vis(i,j) = Atmos%flux_sw_vis_dir(i,j) + Atmos%flux_sw_vis_dif(i,j)
 
         ! --- longwave
         ! total downward lw flux at sfc
-        Atmos%flux_lw(i,j) = IPD_Data(nb)%Radtend%sfcflw(ix)%dnfxc
+        Atmos%flux_lw(i,j) = IPD_Data(nb)%Coupling%sfcdlwa(ix)
 
         ! --- precip rate (kg/m**2/s)
         if ( IPD_Data(nb)%Sfcprop%srflag(ix) .lt. 0.5) then  ! rain (srflag = 0)
