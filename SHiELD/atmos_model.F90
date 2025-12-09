@@ -1329,11 +1329,11 @@ subroutine apply_fluxes_from_IPD_to_Atmos ( Atmos )
 
         ! --- precip rate (kg/m**2/s)
         if ( IPD_Data(nb)%Sfcprop%srflag(ix) .lt. 0.5) then  ! rain (srflag = 0)
-          Atmos%lprec(i,j) = 1./IPD_Control%dtp * IPD_Data(nb)%Sfcprop%tprcp(ix)
+          Atmos%lprec(i,j) = 1./IPD_Control%dtp * IPD_Data(nb)%Sfcprop%tprcp(ix) * 1000.
           Atmos%fprec(i,j) = 0.
         else                                                 ! snow (srflag = 1)
           Atmos%lprec(i,j) = 0.
-          Atmos%fprec(i,j) = 1./IPD_Control%dtp * IPD_Data(nb)%Sfcprop%tprcp(ix)
+          Atmos%fprec(i,j) = 1./IPD_Control%dtp * IPD_Data(nb)%Sfcprop%tprcp(ix) * 1000.
         endif
      enddo
   enddo
