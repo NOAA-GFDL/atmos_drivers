@@ -43,7 +43,7 @@ module atmos_model_mod
 
 use mpp_mod,            only: mpp_pe, mpp_root_pe, mpp_clock_id, mpp_clock_begin
 use mpp_mod,            only: mpp_clock_end, CLOCK_COMPONENT, MPP_CLOCK_SYNC
-use mpp_mod,            only: mpp_min, mpp_max, mpp_error, mpp_chksum
+use mpp_mod,            only: mpp_min, mpp_max, mpp_error, mpp_chksum, FATAL
 use mpp_domains_mod,   only : mpp_get_compute_domain
 use mpp_domains_mod,    only: domain2d
 use mpp_mod,            only: mpp_get_current_pelist_name, mpp_set_current_pelist
@@ -81,7 +81,8 @@ use IPD_typedefs,       only: IPD_init_type, IPD_control_type, &
                               IPD_restart_type, kind_phys
 use IPD_driver,         only: IPD_initialize, IPD_setup_step, &
                               IPD_radiation_step,             &
-                              IPD_physics_step1,              &
+                              IPD_physics_step1_down,              &
+                              IPD_physics_step1_up,              &
                               IPD_physics_step2, IPD_physics_end
 
 use coupler_types_mod, only : coupler_2d_bc_type
@@ -226,6 +227,8 @@ type land_ice_atmos_boundary_type
                                                               ! from Ice%t_surf through xgrid !joseph
    real, dimension(:,:),   pointer :: u_ref          =>null() ! surface zonal wind (cjg: PBL depth mods) !bqx
    real, dimension(:,:),   pointer :: v_ref          =>null() ! surface meridional wind (cjg: PBL depth mods) !bqx
+   real, dimension(:,:),   pointer :: un_ref         =>null() ! surface neutral zonal wind, required by ocean surface wave model
+   real, dimension(:,:),   pointer :: vn_ref         =>null() ! surface neutral meridional wind, required by ocean surface wave model
    real, dimension(:,:),   pointer :: t_ref          =>null() ! surface air temperature (cjg: PBL depth mods)
    real, dimension(:,:),   pointer :: q_ref          =>null() ! surface air specific humidity (cjg: PBL depth mods)
    real, dimension(:,:),   pointer :: albedo         =>null() ! surface albedo for radiation calculations
@@ -280,8 +283,11 @@ logical :: sync            = .false.
 logical :: first_time_step = .false.
 logical :: fprint          = .true.
 logical :: ignore_rst_cksum = .false.   ! enforce (.false.) or override (.true.) data integrity restart checksums
-logical :: fullcoupler_fluxes = .false. ! controls if using air-sea surface fluxes from the full coupler to force SHiELD
-                                        ! if false, SHiELD will not feel the interactive ocean model (one-way coupling) 
+
+integer :: fullcoupler_fluxes = 0   ! 0: no fluxes from the fullcoupler to the physics
+                                    ! 1: fluxes over ocean points (for shiemom)
+                                    ! 2: fluxes over ocean and land points (for shiemom_lm4)
+
 real, dimension(4096) :: fdiag = 0. ! xic: TODO: this is hard coded, space can run out in some cases. Should make it allocatable.
 logical :: fdiag_override = .false. ! lmh: if true overrides fdiag and fhzer: all quantities are zeroed out
                                     ! after every calcluation, output interval and accumulation/avg/max/min
@@ -377,9 +383,19 @@ call mpp_clock_begin(shieldClock)
 !--------------------------------------------------------------------------------------------
 !--------------------------------------------------------------------------------------------
 !--- for atmos-ocean coupling: pass surface fluxes from coupler to SHiELD (by joseph and kun)
-if (fullcoupler_fluxes) then
+if (fullcoupler_fluxes == 0) then
+  ! do nothing
+else
   if (mpp_pe() == mpp_root_pe() .and. debug) write(6,*) "call apply_sfc_data_to_IPD"
-  call apply_sfc_data_to_IPD (Surface_boundary)
+  ! Only consider full coupler fluxes from ocean points - exclude land points (for SHiELD+MOM6)
+  if (fullcoupler_fluxes == 1) then
+    call apply_sfc_data_to_IPD (Surface_boundary, ocean_points_only=.true.)
+  ! Take all fluxes from the coupler ocean and land points (for the fully coupled model with LM4)
+  elseif (fullcoupler_fluxes == 2) then
+    call apply_sfc_data_to_IPD (Surface_boundary, ocean_points_only=.false.)
+  else
+    call mpp_error(FATAL, "Invalid option for fullcoupler_fluxes, should be 0, 1, or 2 check atmos_model.F90 for more info")
+  endif
 endif
 !--------------------------------------------------------------------------------------------
 !--------------------------------------------------------------------------------------------
@@ -391,14 +407,9 @@ call mpp_clock_begin(physClock)
 !$OMP            shared   (Atm_block, IPD_Control, IPD_Data, IPD_Diag, IPD_Restart) &
 !$OMP            private  (nb)
 do nb = 1,Atm_block%nblks
-  call IPD_physics_step1 (IPD_Control, IPD_Data(nb), IPD_Diag, IPD_Restart)
+  call IPD_physics_step1_down (IPD_Control, IPD_Data(nb), IPD_Diag, IPD_Restart)
 enddo
 call mpp_clock_end(physClock)
-
-if (chksum_debug) then
-  if (mpp_pe() == mpp_root_pe()) print *,'PHYSICS STEP1   ', IPD_Control%kdt, IPD_Control%fhour
-  call FV3GFS_IPD_checksum(IPD_Control, IPD_Data, Atm_block)
-endif
 
 !--------------------------------------------------------------------------------------------
 !--------------------------------------------------------------------------------------------
@@ -408,30 +419,11 @@ call apply_fluxes_from_IPD_to_Atmos (Atmos)
 !--------------------------------------------------------------------------------------------
 !--------------------------------------------------------------------------------------------
 
-if (mpp_pe() == mpp_root_pe() .and. debug) write(6,*) "stochastic physics driver"
+    call mpp_clock_end(shieldClock)
+    call mpp_set_current_pelist() !should exit with global pelist to accomodate the full coupler atmos clock
 
-!--- execute the IPD atmospheric physics step2 subcomponent (stochastic physics driver)
-call mpp_clock_begin(physClock)
-!$OMP parallel do default (none) &
-!$OMP            schedule (dynamic,1), &
-!$OMP            shared   (Atm_block, IPD_Control, IPD_Data, IPD_Diag, IPD_Restart) &
-!$OMP            private  (nb)
-do nb = 1,Atm_block%nblks
-  call IPD_physics_step2 (IPD_Control, IPD_Data(nb), IPD_Diag, IPD_Restart)
-enddo
-call mpp_clock_end(physClock)
 
-if (chksum_debug) then
-  if (mpp_pe() == mpp_root_pe()) print *,'PHYSICS STEP2   ', IPD_Control%kdt, IPD_Control%fhour
-  call FV3GFS_IPD_checksum(IPD_Control, IPD_Data, Atm_block)
-endif
-call getiauforcing(IPD_Control,IAU_data)
-if (mpp_pe() == mpp_root_pe() .and. debug) write(6,*) "end of radiation and physics step"
-
-call mpp_clock_end(shieldClock)
-call mpp_set_current_pelist() !should exit with global pelist to accomodate the full coupler atmos clock
-
-return
+  return
 end subroutine update_atmos_model_down
 ! </SUBROUTINE>
 
@@ -474,8 +466,87 @@ subroutine update_atmos_model_up( Surface_boundary, Atmos )
 !-----------------------------------------------------------------------
 
    type(land_ice_atmos_boundary_type), intent(in) :: Surface_boundary
-   type (atmos_data_type), intent(in) :: Atmos
- 
+   type (atmos_data_type), intent(inout) :: Atmos
+   integer :: nb
+
+      if (dycore_only) return
+      call set_atmosphere_pelist() ! should be called before local clocks since they are defined on local atm(n)%pelist
+      call mpp_clock_begin(shieldClock)
+
+    !Atmos%Surf_diff%delta_t  = Surface_boundary%dt_t
+    !Atmos%Surf_diff%delta_tr = Surface_boundary%dt_tr
+
+!--- execute the IPD atmospheric physics step1 subcomponent (main physics driver)
+      call mpp_clock_begin(physClock)
+!$OMP parallel do default (none) &
+!$OMP            schedule (dynamic,1), &
+!$OMP            shared   (Atm_block, IPD_Control, IPD_Data, IPD_Diag, IPD_Restart) &
+!$OMP            private  (nb)
+      do nb = 1,Atm_block%nblks
+        call IPD_physics_step1_up (IPD_Control, IPD_Data(nb), IPD_Diag, IPD_Restart)
+      enddo
+      call mpp_clock_end(physClock)
+
+      if (chksum_debug) then
+        if (mpp_pe() == mpp_root_pe()) print *,'PHYSICS STEP1   ', IPD_Control%kdt, IPD_Control%fhour
+        call FV3GFS_IPD_checksum(IPD_Control, IPD_Data, Atm_block)
+      endif
+
+!--------------------------------------------------------------------------------------------
+!--------------------------------------------------------------------------------------------
+!--- for atmos-ocean coupling: populate Atmos with SHiELD sfc rad and precip fluxes (by kun)
+      if (mpp_pe() == mpp_root_pe() .and. debug) write(6,*) "call apply_fluxes_from_IPD_to_Atmos"
+      call apply_fluxes_from_IPD_to_Atmos (Atmos)
+!--------------------------------------------------------------------------------------------
+!--------------------------------------------------------------------------------------------
+
+      if (mpp_pe() == mpp_root_pe() .and. debug) write(6,*) "stochastic physics driver"
+!--- execute the IPD atmospheric physics step2 subcomponent (stochastic physics driver)
+      call mpp_clock_begin(physClock)
+!$OMP parallel do default (none) &
+!$OMP            schedule (dynamic,1), &
+!$OMP            shared   (Atm_block, IPD_Control, IPD_Data, IPD_Diag, IPD_Restart) &
+!$OMP            private  (nb)
+      do nb = 1,Atm_block%nblks
+        call IPD_physics_step2 (IPD_Control, IPD_Data(nb), IPD_Diag, IPD_Restart)
+      enddo
+      call mpp_clock_end(physClock)
+
+      if (chksum_debug) then
+        if (mpp_pe() == mpp_root_pe()) print *,'PHYSICS STEP2   ', IPD_Control%kdt, IPD_Control%fhour
+        call FV3GFS_IPD_checksum(IPD_Control, IPD_Data, Atm_block)
+      endif
+      call getiauforcing(IPD_Control,IAU_data)
+      if (mpp_pe() == mpp_root_pe() .and. debug) write(6,*) "end of radiation and physics step"
+
+    call mpp_clock_end(shieldClock)
+
+! Reupdate the phys fluxes here, as the coupler fluxes over land points get reupdated
+! in flux_up_to_atmos. This is purely for cosmetic/diagnostic purposes as physics are already called 
+! before and will not be called here again
+
+!--------------------------------------------------------------------------------------------
+!--------------------------------------------------------------------------------------------
+!--- for atmos-ocean coupling: pass surface fluxes from coupler to SHiELD (by joseph and kun)
+if (fullcoupler_fluxes == 0) then
+  ! do nothing
+else
+  if (mpp_pe() == mpp_root_pe() .and. debug) write(6,*) "call apply_sfc_data_to_IPD"
+  ! Only consider full coupler fluxes from ocean points - exclude land points (for SHiELD+MOM6)
+  if (fullcoupler_fluxes == 1) then
+    call apply_sfc_data_to_IPD (Surface_boundary, ocean_points_only=.true.)
+  ! Take all fluxes from the coupler ocean and land points (for the fully coupled model with LM4)
+  elseif (fullcoupler_fluxes == 2) then
+    call apply_sfc_data_to_IPD (Surface_boundary, ocean_points_only=.false.)
+  else
+    call mpp_error(FATAL, "Invalid option for fullcoupler_fluxes, should be 0, 1, or 2 check atmos_model.F90 for more info")
+  endif
+endif
+!
+!--------------------------------------------------------------------------------------------
+!--------------------------------------------------------------------------------------------
+    call mpp_set_current_pelist() !should exit with global pelist to accomodate the full coupler atmos clock
+
    return
 ! !!!IMPORTANT!!!no op for shield runs
 
@@ -595,7 +666,7 @@ subroutine update_atmos_model_radiation (Surface_boundary, Atmos) ! name change 
       if (mpp_pe() == mpp_root_pe() .and. debug) write(6,*) "physics driver"
     endif ! dycore only
     call mpp_clock_end(shieldClock)
-    call mpp_set_current_pelist() !should exit with global pelist to accomodate the full coupler atmos clock
+    call mpp_set_current_pelist(Atmos%pelist, no_sync=.TRUE.) !should exit with global pelist to accomodate the full coupler atmos clock
 
 !-----------------------------------------------------------------------
  !end subroutine update_atmos_radiation_physics
@@ -822,14 +893,7 @@ subroutine atmos_model_init (Atmos, Time_init, Time, Time_step, do_concurrent_ra
 
    call IPD_initialize (IPD_Control, IPD_Data, IPD_Diag, IPD_Restart, Init_parm)
 
-! ensure sfc_coupled is properly set (must be true when using two-way atmos-ocean coupling)
-   if (fullcoupler_fluxes) then
-        if (mpp_pe() == mpp_root_pe()) print *, "using two-way atmos-ocean coupling - enforce sfc_coupled in SHiELD phys to be true"
-        IPD_Control%sfc_coupled = .true.
-   else
-        if (mpp_pe() == mpp_root_pe()) print *, "not using two-way atmos-ocean coupling - enforce sfc_coupled in SHiELD phys to be false"
-        IPD_Control%sfc_coupled = .false.
-   endif
+   IPD_Control%sfc_coupled = fullcoupler_fluxes
 
 #ifdef STOCHY
    if (IPD_Control%do_sppt .OR. IPD_Control%do_shum .OR. IPD_Control%do_skeb .OR. IPD_Control%do_sfcperts) then
@@ -949,7 +1013,7 @@ subroutine atmos_model_init (Atmos, Time_init, Time, Time_step, do_concurrent_ra
                             Atmos % lon_bnd(:,:),  &
                             Atmos % lat_bnd(:,:), Atmos % area)
 
-   call mpp_set_current_pelist() !should exit with global pelist to accomodate the full coupler atmos clock
+   call mpp_set_current_pelist(Atmos%pelist, no_sync=.TRUE.) !should exit with global pelist to accomodate the full coupler atmos clock
 
 end subroutine atmos_model_init
 ! </SUBROUTINE>
@@ -975,7 +1039,7 @@ subroutine update_atmos_model_dynamics (Atmos)
     call mpp_clock_begin(fv3Clock)
     call atmosphere_dynamics (Atmos%Time)
     call mpp_clock_end(fv3Clock)
-    call mpp_set_current_pelist() !should exit with global pelist to accomodate the full coupler atmos clock
+    call mpp_set_current_pelist(Atmos%pelist, no_sync=.TRUE.) !should exit with global pelist to accomodate the full coupler atmos clock
 
 end subroutine update_atmos_model_dynamics
 ! </SUBROUTINE>
@@ -1107,7 +1171,7 @@ subroutine update_atmos_model_state (Atmos)
     call diag_send_complete(Atmos%Time_step)
     call mpp_clock_end(diagClock)
     call mpp_clock_end(shieldClock)
-    call mpp_set_current_pelist() !should exit with global pelist to accomodate the full coupler atmos clock
+    call mpp_set_current_pelist(Atmos%pelist, no_sync=.TRUE.) !should exit with global pelist to accomodate the full coupler atmos clock
 
  end subroutine update_atmos_model_state
 ! </SUBROUTINE>
@@ -1128,7 +1192,7 @@ subroutine update_atmos_model_state (Atmos)
 !     call apply_sfc_data_to_IPD (Surface_boundary)
 ! </TEMPLATE>
 
-subroutine apply_sfc_data_to_IPD (Surface_boundary)
+subroutine apply_sfc_data_to_IPD (Surface_boundary, ocean_points_only)
 !
 !By Joseph and Kun: 
 !Here we use sfc-layer variables/fluxes over ocean points from 
@@ -1136,9 +1200,11 @@ subroutine apply_sfc_data_to_IPD (Surface_boundary)
 !to update variables in SHiELD physics 
 !
   type(land_ice_atmos_boundary_type), intent(in) :: Surface_boundary
+  logical, intent(in) :: ocean_points_only
+
   integer :: nb, blen, ix, i, j
 
-  !$OMP parallel do default(none) shared(Atm_block,IPD_Data,Surface_boundary) &
+  !$OMP parallel do default(none) shared(Atm_block,IPD_Data,Surface_boundary, ocean_points_only) &
   !$OMP                          private(blen,i,j)
   do nb = 1,Atm_block%nblks
      blen = Atm_block%blksz(nb)
@@ -1155,8 +1221,15 @@ subroutine apply_sfc_data_to_IPD (Surface_boundary)
         !       lhflx over valid ocean points will be updated below with physical values
         !IPD_Data(nb)%Sfcprop%lhflx(ix) = -999
 
-        if ( Surface_boundary%frac_open_sea(i,j) .gt. 0.999999 .and. &
-                 Surface_boundary%rough_mom(i,j) .gt. 1e-9) then ! .and. &
+        ! Joseph:
+        ! - ocean_points_only=.false. will bypass this if-statement and consider populating the
+        ! the physics surface quantites directly from the full coupler surface_boundary quantities
+        ! over all grid points.
+        ! - ocean_points_only=.true. will trigger the second part of the if-statement to
+        ! populate the physics surface quantities from the full coupler over ocean points only.
+
+        if ( .not. ocean_points_only .or. (Surface_boundary%frac_open_sea(i,j) .gt. 0.999999 .and. &
+                 Surface_boundary%rough_mom(i,j) .gt. 1e-9)) then ! .and. &
                  !Surface_boundary%rough_heat(i,j) .gt. 1e-9 .and. &
                  !Surface_boundary%u_star(i,j) .lt. 10 .and. &
                  !abs(Surface_boundary%shflx(i,j)) .lt. 1e5 .and. &
@@ -1174,6 +1247,7 @@ subroutine apply_sfc_data_to_IPD (Surface_boundary)
           IPD_Data(nb)%Sfcprop%shflx(ix)  = Surface_boundary%shflx(i,j)
           ! moisture flux (rho*q_flux)
           IPD_Data(nb)%Sfcprop%lhflx(ix)  = Surface_boundary%lhflx(i,j)
+          IPD_Data(nb)%Sfcprop%qsfc(ix)  = Surface_boundary%q_ref(i,j)
 
         endif
      enddo
@@ -1206,12 +1280,12 @@ subroutine apply_fluxes_from_IPD_to_Atmos ( Atmos )
   type (atmos_data_type), intent(inout) :: Atmos
   integer :: nb, blen, ix, i, j
 
-  real :: nirbmdi, visbmdi, nirbmui, visbmui
-  real :: nirdfdi, visdfdi, nirdfui, visdfui
+  real :: nirbmd, visbmd, nirbmu, visbmu
+  real :: nirdfd, visdfd, nirdfu, visdfu
 
   !$OMP parallel do default(none) shared(Atm_block,Atmos,IPD_Data,IPD_Control) &
-  !$OMP                          private(blen,i,j,nirbmdi,visbmdi,nirbmui,visbmui, &
-  !$OMP                                  nirdfdi,visdfdi,nirdfui,visdfui)
+  !$OMP                          private(blen,i,j,nirbmd,visbmd,nirbmu,visbmu, &
+  !$OMP                                  nirdfd,visdfd,nirdfu,visdfu)
   do nb = 1,Atm_block%nblks
      blen = Atm_block%blksz(nb)
      do ix = 1, blen
@@ -1221,41 +1295,40 @@ subroutine apply_fluxes_from_IPD_to_Atmos ( Atmos )
         ! --- shortwave
 
         ! eight sw components: dir/dif; nir/vis; down/up
-        nirbmdi = IPD_Data(nb)%Coupling%nirbmdi(ix)
-        nirdfdi = IPD_Data(nb)%Coupling%nirdfdi(ix)
-        visbmdi = IPD_Data(nb)%Coupling%visbmdi(ix)
-        visdfdi = IPD_Data(nb)%Coupling%visdfdi(ix)
-        nirbmui = IPD_Data(nb)%Coupling%nirbmui(ix)
-        nirdfui = IPD_Data(nb)%Coupling%nirdfui(ix)
-        visbmui = IPD_Data(nb)%Coupling%visbmui(ix)
-        visdfui = IPD_Data(nb)%Coupling%visdfui(ix)
+        nirbmd = IPD_Data(nb)%Coupling%nirbmda(ix)
+        nirdfd = IPD_Data(nb)%Coupling%nirdfda(ix)
+        visbmd = IPD_Data(nb)%Coupling%visbmda(ix)
+        visdfd = IPD_Data(nb)%Coupling%visdfda(ix)
+        ! kgao 8/6/25:
+        ! the upward components below are obtained as downward * albedo in shield;
+        ! should not be used since albedo effect will be considered in FMScoupler
+        nirbmu = IPD_Data(nb)%Coupling%nirbmua(ix)
+        nirdfu = IPD_Data(nb)%Coupling%nirdfua(ix)
+        visbmu = IPD_Data(nb)%Coupling%visbmua(ix)
+        visdfu = IPD_Data(nb)%Coupling%visdfua(ix)
 
         ! cosine of zenith angle
-        Atmos%coszen(i,j) = IPD_Data(nb)%Radtend%coszen(ix)
+        Atmos%coszen(i,j) = IPD_Data(nb)%Coupling%coszena(ix)
 
-        ! visible down
-        Atmos%flux_sw_down_vis_dir(i,j) = visbmdi                         ! downward visible sw flux at surface - direct
-        Atmos%flux_sw_down_vis_dif(i,j) = visdfdi                         ! downward visible sw flux at surface - diffused
+        ! visible only
+        Atmos%flux_sw_down_vis_dir(i,j) = visbmd              ! downward visible sw flux at surface - direct
+        Atmos%flux_sw_down_vis_dif(i,j) = visdfd              ! downward visible sw flux at surface - diffused
+        Atmos%flux_sw_vis_dir(i,j) = visbmd                   ! downward visible sw flux at surface - direct
+        Atmos%flux_sw_vis_dif(i,j) = visdfd                   ! downward visible sw flux at surface - diffused
 
-        ! visible net
-        Atmos%flux_sw_vis_dir(i,j) = visbmdi - visbmui                    ! net (down-up) visible sw flux at surface - direct
-        Atmos%flux_sw_vis_dif(i,j) = visdfdi - visdfui                    ! net (down-up) visible sw flux at surface - diffused
+        ! total
+        Atmos%flux_sw_down_total_dir(i,j) = nirbmd + visbmd   ! downward total sw flux at surface - direct
+        Atmos%flux_sw_down_total_dif(i,j) = nirdfd + visdfd   ! downward total sw flux at surface - diffused
+        Atmos%flux_sw_dir(i,j) = nirbmd + visbmd              ! downward total sw flux at surface - direct
+        Atmos%flux_sw_dif(i,j) = nirdfd + visdfd              ! downward total sw flux at surface - diffused
 
-        ! total down
-        Atmos%flux_sw_down_total_dir(i,j) = nirbmdi + visbmdi             ! downward total sw flux at surface - direct
-        Atmos%flux_sw_down_total_dif(i,j) = nirdfdi + visdfdi             ! downward total sw flux at surface - diffused
-
-        ! total net
-        Atmos%flux_sw_dir(i,j) = (nirbmdi + visbmdi) - (nirbmui + visbmui)! net (down-up) sw flux at surface - direct
-        Atmos%flux_sw_dif(i,j) = (nirdfdi + visdfdi) - (nirdfui + visbmui)! net (down-up) sw flux at surface - diffused
-
-        ! total net and visible net; not used on exchange grid (not important)
+        ! vars below are not projected onto the exchange grid in the coupler and therefore are not important
         Atmos%flux_sw(i,j)     = Atmos%flux_sw_dir(i,j) + Atmos%flux_sw_dif(i,j)
-        Atmos%flux_sw_vis(i,j) = Atmos%flux_sw_vis_dir(i,j) + Atmos%flux_sw_vis_dir(i,j)
+        Atmos%flux_sw_vis(i,j) = Atmos%flux_sw_vis_dir(i,j) + Atmos%flux_sw_vis_dif(i,j)
 
         ! --- longwave
         ! total downward lw flux at sfc
-        Atmos%flux_lw(i,j) = IPD_Data(nb)%Radtend%sfcflw(ix)%dnfxc
+        Atmos%flux_lw(i,j) = IPD_Data(nb)%Coupling%sfcdlwa(ix)
 
         ! --- precip rate (kg/m**2/s)
         if ( IPD_Data(nb)%Sfcprop%srflag(ix) .lt. 0.5) then  ! rain (srflag = 0)
@@ -1336,7 +1409,7 @@ subroutine atmos_model_restart(Atmos, timestamp)
                IPD_Control, Atmos%coarse_domain, timestamp)
        endif
     endif
-    call mpp_set_current_pelist() !should exit with global pelist to accomodate the full coupler atmos clock
+    call mpp_set_current_pelist(Atmos%pelist, no_sync=.TRUE.) !should exit with global pelist to accomodate the full coupler atmos clock
 end subroutine atmos_model_restart
 ! </SUBROUTINE>
 
