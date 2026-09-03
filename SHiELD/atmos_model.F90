@@ -610,7 +610,7 @@ subroutine update_atmos_model_radiation (Surface_boundary, Atmos) ! name change 
     if (mpp_pe() == mpp_root_pe() .and. debug) write(6,*) "statein driver"
 !--- get atmospheric state from the dynamic core
     call mpp_clock_begin(getClock)
-    if (IPD_control%stochastic%do_skeb) call atmosphere_diss_est (IPD_control%stochastic%skeb_npass) !  do smoothing for SKEB
+    if (IPD_control%do_skeb) call atmosphere_diss_est (IPD_control%skeb_npass) !  do smoothing for SKEB
     call atmos_phys_driver_statein (IPD_data, Atm_block)
     call mpp_clock_end(getClock)
 
@@ -641,8 +641,8 @@ subroutine update_atmos_model_radiation (Surface_boundary, Atmos) ! name change 
 
 #ifdef STOCHY
 !--- call stochastic physics pattern generation / cellular automata
-      if (IPD_Control%stochastic%do_sppt .or. IPD_Control%stochastic%do_shum .or. IPD_Control%stochastic%do_skeb .or. &
-          IPD_Control%stochastic%lndp_type > 0  .or. IPD_Control%stochastic%do_ca .or. IPD_Control%stochastic%do_spp) then
+      if (IPD_Control%do_sppt .or. IPD_Control%do_shum .or. IPD_Control%do_skeb .or. &
+          IPD_Control%lndp_type > 0  .or. IPD_Control%do_ca .or. IPD_Control%do_spp) then
         call stochastic_physics_wrapper(IPD_control, IPD_data, Atm_block, nthrds, ierr)
         if (ierr/=0)  call mpp_error(FATAL, 'Call to stochastic_physics_wrapper failed')
       endif
@@ -892,7 +892,7 @@ subroutine atmos_model_init (Atmos, Time_init, Time, Time_step, do_concurrent_ra
 
    call IPD_initialize (IPD_Control, IPD_Data, IPD_Diag, IPD_Restart, Init_parm)
 
-   Atm(mygrid)%flagstruct%do_diss_est = IPD_Control%stochastic%do_skeb
+   Atm(mygrid)%flagstruct%do_diss_est = IPD_Control%do_skeb
 
 !  initialize the IAU module
    call iau_initialize (IPD_Control,IAU_data,Init_parm)
@@ -935,8 +935,8 @@ subroutine atmos_model_init (Atmos, Time_init, Time, Time_step, do_concurrent_ra
       endif
 
 #ifdef STOCHY
-   if (IPD_Control%stochastic%do_sppt .or. IPD_Control%stochastic%do_shum .or. IPD_Control%stochastic%do_skeb .or. &
-       IPD_Control%stochastic%lndp_type > 0  .or. IPD_Control%stochastic%do_ca .or. IPD_Control%stochastic%do_spp) then
+   if (IPD_Control%do_sppt .or. IPD_Control%do_shum .or. IPD_Control%do_skeb .or. &
+       IPD_Control%lndp_type > 0  .or. IPD_Control%do_ca .or. IPD_Control%do_spp) then
 !--- Initialize stochastic physics pattern generation / cellular automata for first time step
      call stochastic_physics_wrapper(IPD_control, IPD_data, Atm_block, nthrds, ierr)
      if (ierr/=0)  call mpp_error(FATAL, 'Call to stochastic_physics_wrapper failed')
@@ -1374,8 +1374,8 @@ subroutine atmos_model_end (Atmos)
     call atmosphere_end (Atmos % Time, Atmos%grid)
 
 #ifdef STOCHY
-    if (IPD_Control%stochastic%do_sppt .or. IPD_Control%stochastic%do_shum .or. IPD_Control%stochastic%do_skeb .or. &
-        IPD_Control%stochastic%lndp_type > 0  .or. IPD_Control%stochastic%do_ca .or. IPD_Control%stochastic%do_spp) then
+    if (IPD_Control%do_sppt .or. IPD_Control%do_shum .or. IPD_Control%do_skeb .or. &
+        IPD_Control%lndp_type > 0  .or. IPD_Control%do_ca .or. IPD_Control%do_spp) then
       call stochastic_physics_wrapper_end(IPD_control)
     endif 
 #endif
