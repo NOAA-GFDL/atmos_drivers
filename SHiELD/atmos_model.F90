@@ -1108,7 +1108,7 @@ subroutine update_atmos_model_state (Atmos)
     endif
     ! For overflow safety cast scaled fdiag values to 64-bit nearest integers
     ! before interacting with seconds.
-    if (ANY(nint(fdiag(:)*3600.0, kind=8) == seconds) .or. (fdiag_fix .and. mod(seconds, nint(fdiag(1)*3600.0, kind=8)) .eq. 0) .or. write_first_time_step) then
+    if (ANY(nint(fdiag(:)*3600.0, kind=8) == seconds) .or. (fdiag_fix .and. mod(seconds, nint(fdiag(1)*3600.0, kind=8)) .eq. 0) .or. (IPD_Control%kdt == 1 .and. write_first_time_step)) then
       if(Atmos%iau_offset > zero) then
         if( time_int - Atmos%iau_offset*3600. > zero ) then
           time_int = time_int - Atmos%iau_offset*3600.
