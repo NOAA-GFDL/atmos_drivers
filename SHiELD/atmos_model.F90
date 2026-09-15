@@ -403,10 +403,11 @@ call apply_fluxes_from_IPD_to_Atmos (Atmos)
 ! used in flux_down_from_atmos for implicit coupling ! Joseph
 !--------------------------------------------------------------------------------------------
 !--------------------------------------------------------------------------------------------
-if (mpp_pe() == mpp_root_pe() .and. debug) write(6,*) "Populate surf_diff for implicit coupling"
-call populate_surf_diff ( Atmos%surf_diff, IPD_Data, IAU_Data, Atm_block)
-!call update_surface_boundary_from_down (Surface_boundary, IPD_Data, IAU_Data, Atm_block)
-
+if (fullcoupler_fluxes == 2) then
+  if (mpp_pe() == mpp_root_pe() .and. debug) write(6,*) "Populate surf_diff for implicit coupling"
+  call populate_surf_diff ( Atmos%surf_diff, IPD_Data, IAU_Data, Atm_block)
+  !call update_surface_boundary_from_down (Surface_boundary, IPD_Data, IAU_Data, Atm_block)
+endif
     call mpp_clock_end(shieldClock)
     call mpp_set_current_pelist() !should exit with global pelist to accomodate the full coupler atmos clock
 
@@ -460,11 +461,11 @@ subroutine update_atmos_model_up( Surface_boundary, Atmos )
       if (dycore_only) return
       call set_atmosphere_pelist() ! should be called before local clocks since they are defined on local atm(n)%pelist
       call mpp_clock_begin(shieldClock)
-
+if (fullcoupler_fluxes == 2) then
     Atmos%Surf_diff%delta_t  = Surface_boundary%dt_t
     Atmos%Surf_diff%delta_tr = Surface_boundary%dt_tr
-
     call land_feedback ( Atmos%surf_diff, IPD_Data, IAU_Data, Atm_block)
+endif
 !--- execute the IPD atmospheric physics step1 subcomponent (main physics driver)
       call mpp_clock_begin(physClock)
 !$OMP parallel do default (none) &
