@@ -1237,6 +1237,11 @@ subroutine apply_sfc_data_to_IPD (Surface_boundary, ocean_points_only)
           ! moisture flux (rho*q_flux)
           IPD_Data(nb)%Sfcprop%lhflx(ix)  = Surface_boundary%lhflx(i,j)
           IPD_Data(nb)%Sfcprop%qsfc(ix)  = Surface_boundary%q_ref(i,j)
+        else
+        ! non-dynamical ocean point: update lhflx so SHiELD physics (sfc_ocean_coupled.f)
+        ! uses the uncoupled flux calculation instead of coupler fluxes.
+        ! Necessary for cross-restarts reproducibility
+          IPD_Data(nb)%Sfcprop%lhflx(ix)  = -999.0
 
         endif
      enddo
